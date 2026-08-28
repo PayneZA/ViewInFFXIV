@@ -1,0 +1,59 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>1.0.0.0</Version>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Name>InView</Name>
+    <InternalName>InView</InternalName>
+    <DalamudApiLevel>15</DalamudApiLevel>
+    <Punchline>Put WatchTogether on a wall in your house.</Punchline>
+    <Description>Hosts WatchTogether.watch in a helper process and draws the video on a 16:9 screen in FFXIV housing. Chat stays in /say. Open with /inview.</Description>
+    <Tags>utility;housing;video;watchtogether</Tags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\InView.Shared\InView.Shared.csproj" />
+    <PackageReference Include="Pictomancy" Version="1.0.10" />
+  </ItemGroup>
+  <Target Name="BuildHost" BeforeTargets="BeforeBuild">
+    <MSBuild Projects="..\InView.Host\InView.Host.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=Any CPU" />
+  </Target>
+  <Target Name="CopyHost" AfterTargets="Build">
+    <PropertyGroup>
+      <_HostOutAnyCpu>..\InView.Host\bin\Any CPU\$(Configuration)\net10.0-windows10.0.19041.0\</_HostOutAnyCpu>
+      <_HostOutFlat>..\InView.Host\bin\$(Configuration)\net10.0-windows10.0.19041.0\</_HostOutFlat>
+      <HostOut Condition="Exists('$(_HostOutAnyCpu)')">$(_HostOutAnyCpu)</HostOut>
+      <HostOut Condition="!Exists('$(_HostOutAnyCpu)')">$(_HostOutFlat)</HostOut>
+    </PropertyGroup>
+    <ItemGroup>
+      <HostFiles Include="$(HostOut)**\*.*" Exclude="$(HostOut)**\*.pdb" />
+    </ItemGroup>
+    <Copy SourceFiles="@(HostFiles)" DestinationFolder="$(OutputPath)Host\%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(HostOut)runtimes\win-x64\native\WebView2Loader.dll" DestinationFolder="$(OutputPath)Host" SkipUnchangedFiles="true" Condition="Exists('$(HostOut)runtimes\win-x64\native\WebView2Loader.dll')" />
+  </Target>
+  <PropertyGroup>
+    <DistDir>$(MSBuildThisFileDirectory)..\dist\</DistDir>
+    <ReleaseZip>$(DistDir)release.zip</ReleaseZip>
+    <ReleaseZipVersioned>$(DistDir)InView-$(Version).zip</ReleaseZipVersioned>
+    <StageDir>$(DistDir).stage\</StageDir>
+  </PropertyGroup>
+  <Target Name="PackRelease" AfterTargets="CopyHost" Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <PluginPack Include="$(OutputPath)*.dll" />
+      <PluginPack Include="$(OutputPath)InView.json" />
+      <HostPack Include="$(OutputPath)Host\**\*.*" Exclude="$(OutputPath)Host\**\*.pdb" />
+    </ItemGroup>
+    <RemoveDir Directories="$(StageDir)" ContinueOnError="true" />
+    <MakeDir Directories="$(StageDir);$(StageDir)Host;$(DistDir)" />
+    <Copy SourceFiles="@(PluginPack)" DestinationFolder="$(StageDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(HostPack)" DestinationFolder="$(StageDir)Host\%(RecursiveDir)" SkipUnchangedFiles="true" Condition="'@(HostPack)' != ''" />
+    <WriteLinesToFile
+      File="$(StageDir)INSTALL.txt"
+      Overwrite="true"
+      Lines="InView dev plugin pack;Extract this folder anywhere (keep InView.dll and Host/ together).;In game: /xlsettings - Experimental - Dev Plugin Locations - add this folder.;Then /xlplugins - Dev Tools - enable InView.;Requires Dalamud API 15, .NET 10, and WebView2 Runtime." />
+    <Delete Files="$(ReleaseZip);$(ReleaseZipVersioned)" ContinueOnError="true" />
+    <ZipDirectory SourceDirectory="$(StageDir)" DestinationFile="$(ReleaseZip)" Overwrite="true" />
+    <Copy SourceFiles="$(ReleaseZip)" DestinationFiles="$(ReleaseZipVersioned)" SkipUnchangedFiles="false" />
+    <Message Importance="high" Text="Created dev plugin pack: $(ReleaseZip)" />
+  </Target>
+</Project>
