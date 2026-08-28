@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RootNamespace>InView.Host</RootNamespace>
+    <AssemblyName>InView.Host</AssemblyName>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\InView.Shared\InView.Shared.csproj" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3537.50" />
+  </ItemGroup>
+  <Target Name="RemoveWpfWebView" AfterTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <ReferencePath Remove="@(ReferencePath)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+</Project>
