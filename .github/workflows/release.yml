@@ -43,6 +43,10 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
 
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore ViewInFFXIV.sln
+
       - name: Build Release
         shell: pwsh
         run: |
