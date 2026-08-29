@@ -11,6 +11,7 @@ public sealed class RemoteWindow : Window, IDisposable
     private readonly Plugin plugin;
     private string url;
     private string shareInput = "";
+    private string newPresetName = "";
 
     public RemoteWindow(Plugin plugin)
         : base("ViewInFFXIV##ViewInFFXIVRemote")
@@ -103,6 +104,7 @@ public sealed class RemoteWindow : Window, IDisposable
 
         ImGui.Separator();
         ImGui.TextUnformatted("House screen — sliders move it live");
+        DrawSavedSpots(config);
         ScreenPlacement.EnsureAnchor(config);
         if (ImGui.Button("Place in front of me"))
             plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, config);
@@ -115,7 +117,10 @@ public sealed class RemoteWindow : Window, IDisposable
             if (enabled && !config.HasAnchor)
                 plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, config);
             else
+            {
+                SyncActivePreset(config);
                 config.Save();
+            }
         }
 
         ImGui.TextDisabled("Anchor stays where you last placed. Re-place to move the origin.");
@@ -156,13 +161,14 @@ public sealed class RemoteWindow : Window, IDisposable
         if (ImGui.Button("Reset to defaults"))
         {
             PlacementLimits.ResetToDefaults(config);
+            SyncActivePreset(config);
             config.Save();
         }
 
         ImGui.SameLine();
         if (ImGui.Button("Remove from zone"))
         {
-            PlacementLimits.RemoveFromZone(config);
+            PlacementLimits.RemoveFromZone(config, Plugin.ClientState.TerritoryType);
             config.Save();
         }
 
@@ -185,6 +191,74 @@ public sealed class RemoteWindow : Window, IDisposable
         ImGui.Separator();
         DrawStatus(status, helperRunning);
         DrawPreview(capturingWindow, helperRunning);
+    }
+
+    private void DrawSavedSpots(Configuration config)
+    {
+        var territoryId = Plugin.ClientState.TerritoryType;
+        if (territoryId == 0)
+        {
+            ImGui.TextDisabled("Saved spots — enter a zone to save TV positions.");
+            return;
+        }
+
+        ImGui.TextUnformatted($"Saved spots — territory {territoryId}");
+        var territory = PlacementPresets.FindTerritory(config, territoryId);
+        var presets = territory?.Presets ?? [];
+        var names = presets.Select(p => p.Name).ToArray();
+        var current = 0;
+        if (territory != null && !string.IsNullOrWhiteSpace(territory.ActivePresetName))
+        {
+            current = Array.FindIndex(names, n =>
+                n.Equals(territory.ActivePresetName, StringComparison.OrdinalIgnoreCase));
+            if (current < 0)
+                current = 0;
+        }
+
+        if (names.Length == 0)
+        {
+            ImGui.TextDisabled("No saved spots yet. Place the screen, then Save spot or New spot.");
+        }
+        else if (ImGui.Combo("Spot", ref current, names, names.Length))
+        {
+            PlacementPresets.SelectPreset(config, territoryId, names[current]);
+            config.Save();
+        }
+
+        if (ImGui.Button("Save spot"))
+        {
+            PlacementPresets.SaveActivePreset(config, territoryId);
+            config.Save();
+        }
+
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(120f);
+        ImGui.InputText("##newspot", ref newPresetName, 64);
+        ImGui.SameLine();
+        if (ImGui.Button("New spot"))
+        {
+            if (PlacementPresets.CreatePreset(config, territoryId, newPresetName))
+            {
+                newPresetName = "";
+                config.Save();
+            }
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Delete spot") && territory != null && !string.IsNullOrWhiteSpace(territory.ActivePresetName))
+        {
+            PlacementPresets.DeletePreset(config, territoryId, territory.ActivePresetName);
+            config.Save();
+        }
+
+        ImGui.TextDisabled("Switch spots to move the TV between lounge, bedroom, etc.");
+    }
+
+    private void SyncActivePreset(Configuration config)
+    {
+        var territoryId = Plugin.ClientState.TerritoryType;
+        if (territoryId != 0)
+            PlacementPresets.SaveActivePreset(config, territoryId);
     }
 
     private void DrawHelperControls(Configuration config, bool helperRunning)
@@ -343,7 +417,10 @@ public sealed class RemoteWindow : Window, IDisposable
     {
         var changed = ImGui.SliderFloat(label, ref value, min, max);
         if (ImGui.IsItemDeactivatedAfterEdit())
+        {
+            SyncActivePreset(plugin.Configuration);
             plugin.Configuration.Save();
+        }
         return changed;
     }
 }

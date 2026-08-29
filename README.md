@@ -86,6 +86,20 @@ The helper does **not** start automatically unless you enable **Start helper wit
 
 Both people need Dalamud + ViewInFFXIV. Join the **same WatchTogether room URL**. A guest without the plugin sees a blank wall.
 
+## Saved spots per zone
+
+Each housing **territory** can store up to **12 named TV placements** (e.g. Lounge, Bedroom). Lounge and bedroom share the same territory ID — use **named spots** to switch between them.
+
+In `/viewin` under **Saved spots**:
+
+- **Spot** combo — switch between saved placements in the current zone
+- **Save spot** — overwrite the active spot with current slider values
+- **New spot** — save the current placement under a new name
+- **Delete spot** — remove the active spot from this zone
+- **Remove from zone** — same as delete spot (clears the active saved placement)
+
+When you leave and re-enter a zone, the last active spot for that territory restores automatically.
+
 ## Capture sources
 
 - **Built-in** — WebView2 inside `ViewInFFXIV.Host.exe` (default).

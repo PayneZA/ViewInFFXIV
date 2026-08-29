@@ -42,18 +42,9 @@ public static class PlacementLimits
             ScreenPlacement.ApplyLive(config);
     }
 
-    public static void RemoveFromZone(Configuration config)
+    public static void RemoveFromZone(Configuration config, uint territoryId)
     {
-        config.ScreenEnabled = false;
-        config.HasAnchor = false;
-        config.ScreenTerritory = 0;
-        config.ScreenX = 0f;
-        config.ScreenY = 0f;
-        config.ScreenZ = 0f;
-        config.AnchorX = 0f;
-        config.AnchorY = 0f;
-        config.AnchorZ = 0f;
-        config.AnchorYaw = 0f;
+        PlacementPresets.RemoveActivePreset(config, territoryId);
     }
 }
 
@@ -74,6 +65,7 @@ public sealed class ScreenPlacement
         config.ScreenTerritory = client.TerritoryType;
         config.ScreenEnabled = true;
         ApplyLive(config);
+        PlacementPresets.SaveActivePreset(config, client.TerritoryType);
         config.Save();
     }
 
