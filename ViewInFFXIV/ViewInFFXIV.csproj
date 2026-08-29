@@ -4,6 +4,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Author>ViewInFFXIV</Author>
     <AssemblyName>ViewInFFXIV</AssemblyName>
     <Name>ViewInFFXIV</Name>
     <InternalName>ViewInFFXIV</InternalName>

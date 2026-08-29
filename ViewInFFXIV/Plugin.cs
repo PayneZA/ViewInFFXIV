@@ -39,6 +39,7 @@ public sealed class Plugin : IDalamudPlugin
     private string lastSentSource = "";
     private long lastSentHwnd;
     private bool helperWasAlive;
+    private uint lastTerritoryType;
 
     public Plugin()
     {
@@ -46,6 +47,15 @@ public sealed class Plugin : IDalamudPlugin
         Configuration.RoomUrl ??= IpcConstants.DefaultUrl;
         if (string.IsNullOrWhiteSpace(Configuration.CaptureSource))
             Configuration.CaptureSource = "webview";
+
+        if (Configuration.Version < 3)
+            PlacementPresets.MigrateFromV2(Configuration);
+        Configuration.Version = 3;
+        Configuration.SavedPlacements ??= [];
+
+        lastTerritoryType = ClientState.TerritoryType;
+        if (lastTerritoryType != 0)
+            PlacementPresets.LoadActivePreset(Configuration, lastTerritoryType);
 
         Host = new HostClient(
             Log,
@@ -138,6 +148,8 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         Configuration.Save();
+        PlacementPresets.ApplyImportedShareCode(Configuration);
+        Configuration.Save();
         ChatGui.Print("ViewInFFXIV screen applied from share code.", ChatPrefix);
         if (ClientState.TerritoryType != Configuration.ScreenTerritory)
         {
@@ -149,6 +161,14 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnFramework(IFramework framework)
     {
+        var territory = ClientState.TerritoryType;
+        if (territory != lastTerritoryType)
+        {
+            PlacementPresets.OnTerritoryChanged(Configuration, lastTerritoryType, territory);
+            lastTerritoryType = territory;
+            Configuration.Save();
+        }
+
         Host.Tick();
         if (Host.HelperAlive && !helperWasAlive)
         {
