@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      DALAMUD_HOME: ${{ github.workspace }}\dalamud
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download Dalamud
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile dalamud.zip
+          Expand-Archive -Force dalamud.zip $env:DALAMUD_HOME
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          if ($tag -like 'v*') {
+            $version = $tag.Substring(1)
+          } else {
+            [xml]$proj = Get-Content ViewInFFXIV/ViewInFFXIV.csproj
+            $version = $proj.Project.PropertyGroup.Version | Select-Object -First 1
+            $tag = "v$version"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Build Release
+        shell: pwsh
+        run: |
+          dotnet build ViewInFFXIV/ViewInFFXIV.csproj `
+            -c Release `
+            -p:Platform=x64 `
+            -p:Version=${{ steps.version.outputs.version }} `
+            -p:AssemblyVersion=${{ steps.version.outputs.version }} `
+            -p:FileVersion=${{ steps.version.outputs.version }} `
+            --nologo
+
+      - name: Update repo.json
+        shell: pwsh
+        run: |
+          $zipUrl = "https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/latest.zip"
+          $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+          $json = Get-Content -Raw repo.json | ConvertFrom-Json
+          $entry = $json[0]
+          $entry.AssemblyVersion = '${{ steps.version.outputs.version }}'
+          $entry.TestingAssemblyVersion = '${{ steps.version.outputs.version }}'
+          $entry.DownloadLinkInstall = $zipUrl
+          $entry.DownloadLinkTesting = $zipUrl
+          $entry.DownloadLinkUpdate = $zipUrl
+          $entry.LastUpdate = "$timestamp"
+          @($entry) | ConvertTo-Json -Depth 10 | Set-Content repo.json -Encoding utf8
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: ViewInFFXIV/bin/x64/Release/ViewInFFXIV/latest.zip
+          generate_release_notes: true
+
+      - name: Commit repo.json
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add repo.json
+          if (git diff --staged --quiet) {
+            Write-Host "repo.json unchanged"
+          } else {
+            git commit -m "Update repo.json for ${{ steps.version.outputs.tag }}"
+            git push
+          }

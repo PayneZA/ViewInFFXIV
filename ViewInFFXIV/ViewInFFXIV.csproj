@@ -12,6 +12,9 @@
     <Punchline>Put WatchTogether on a wall in your house.</Punchline>
     <Description>Hosts WatchTogether.watch in a helper process and draws the video on a 16:9 screen in FFXIV housing. Chat stays in /say. Open with /viewin.</Description>
     <Tags>utility;housing;video;watchtogether</Tags>
+    <RepoUrl>https://github.com/PayneZA/ViewInFFXIV</RepoUrl>
+    <MakeZip>true</MakeZip>
+    <Exclude>InView*;Host\InView*;*.pdb;Host\*.pdb</Exclude>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ViewInFFXIV.Shared\ViewInFFXIV.Shared.csproj" />
@@ -19,6 +22,12 @@
   </ItemGroup>
   <Target Name="BuildHost" BeforeTargets="BeforeBuild">
     <MSBuild Projects="..\ViewInFFXIV.Host\ViewInFFXIV.Host.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=Any CPU" />
+  </Target>
+  <Target Name="CleanStaleArtifacts" BeforeTargets="DefaultDalamudPackagerRelease" DependsOnTargets="CopyHost" Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <StaleInView Include="$(OutputPath)InView*;$(OutputPath)Host\InView*" />
+    </ItemGroup>
+    <Delete Files="@(StaleInView)" ContinueOnError="true" />
   </Target>
   <Target Name="CopyHost" AfterTargets="Build">
     <PropertyGroup>

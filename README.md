@@ -56,6 +56,22 @@ Inside the zip: `ViewInFFXIV.dll`, dependencies, `ViewInFFXIV.json`, `Host/` (he
 
 Visual Studio **Release \| x64** build produces the zip automatically. No extra step.
 
+## Install from Dalamud plugin installer
+
+Friends can install like a normal third-party plugin — no dev-plugin folder setup.
+
+1. In game: `/xlsettings` → **Experimental** → **Custom Plugin Repositories**
+2. Add this URL:
+
+   ```
+   https://raw.githubusercontent.com/PayneZA/ViewInFFXIV/main/repo.json
+   ```
+
+3. `/xlplugins` → find **ViewInFFXIV** → **Install**
+4. Enable the plugin, then `/viewin start` (or turn on **Start helper with FFXIV** in the menu)
+
+The installer zip includes `ViewInFFXIV.dll` and the `Host/` helper folder together. WebView2 Runtime is required (usually already installed with Edge).
+
 ### Output folders
 
 | Artifact | Path (Visual Studio, **Debug \| x64**) |
