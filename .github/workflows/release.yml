@@ -90,5 +90,5 @@ jobs:
             Write-Host "repo.json unchanged"
           } else {
             git commit -m "Update repo.json for ${{ steps.version.outputs.tag }}"
-            git push
+            git push origin HEAD:main
           }
