@@ -125,6 +125,16 @@ public sealed class RemoteWindow : Window, IDisposable
 
         ImGui.TextDisabled("Anchor stays where you last placed. Re-place to move the origin.");
 
+        var keepWhenHidden = config.KeepScreenWhenUiHidden;
+        if (ImGui.Checkbox("Keep screen when UI hidden", ref keepWhenHidden))
+        {
+            config.KeepScreenWhenUiHidden = keepWhenHidden;
+            config.Save();
+            plugin.ApplyUiHidePolicy();
+        }
+
+        ImGui.TextDisabled("Scroll Lock, cutscenes, and GPose.");
+
         var distance = config.PlaceDistance;
         if (LiveSlider("Distance", ref distance, PlacementLimits.MinDistance, PlacementLimits.MaxDistance))
         {
