@@ -1,13 +1,13 @@
 # ViewInFFXIV
 
-Dalamud plugin that moves a [WatchTogether.watch](https://watchtogether.watch/) room off a second monitor and onto a 16:9 screen in FFXIV housing. WatchTogether still plays and syncs the video. ViewInFFXIV hosts that page (or a live browser/Discord window), scales it to fit, and draws it in the world. Talk in `/say`.
+Dalamud plugin that captures a **browser or Discord window** and draws it on a 16:9 screen in FFXIV housing. Use WatchTogether, Twitch, YouTube, or Discord in your own browser (with uBlock, etc.) and put that picture on the wall.
 
 ## Solution layout
 
 | Project | Role |
 |---------|------|
 | **[ViewInFFXIV](ViewInFFXIV/)** | Dalamud plugin (`ViewInFFXIV.dll`). Runs inside `ffxiv_dx11.exe`, draws the video on a housing wall, talks to the helper over named pipes + shared memory. |
-| **[ViewInFFXIV.Host](ViewInFFXIV.Host/)** | Out-of-process helper (`ViewInFFXIV.Host.exe`). WebView2 + WinForms; captures the page with `PrintWindow`, writes BGRA frames to a memory-mapped file. Never loaded into the game. |
+| **[ViewInFFXIV.Host](ViewInFFXIV.Host/)** | Out-of-process capture helper (`ViewInFFXIV.Host.exe`). WinForms daemon; captures a chosen window with `PrintWindow`, writes BGRA frames to a memory-mapped file. Never loaded into the game. |
 | **[ViewInFFXIV.Shared](ViewInFFXIV.Shared/)** | IPC contracts shared by the plugin and helper (pipe messages, frame buffer layout, browser catalog). |
 
 Build order: **ViewInFFXIV.Shared** → **ViewInFFXIV.Host** → **ViewInFFXIV** (the plugin project builds the host and copies it into `ViewInFFXIV/bin/.../Host/` automatically).
@@ -17,7 +17,7 @@ Build order: **ViewInFFXIV.Shared** → **ViewInFFXIV.Host** → **ViewInFFXIV**
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - [Visual Studio 2022](https://visualstudio.microsoft.com/) with **.NET desktop development** (optional; CLI works too)
 - Local **XIVLauncher / Dalamud** dev hooks (`%AppData%\XIVLauncher\addon\Hooks\dev`, or set `DALAMUD_HOME`)
-- **WebView2 Runtime** (usually already installed with Edge)
+- A browser (Chrome, Brave, Edge, Firefox, etc.) or Discord desktop for the video source
 
 ## Build
 
@@ -50,7 +50,7 @@ Every **Release** build of the plugin project automatically creates:
 | `dist/release.zip` | Ready-to-extract dev plugin folder |
 | `dist/ViewInFFXIV-{version}.zip` | Same archive, versioned copy |
 
-Inside the zip: `ViewInFFXIV.dll`, dependencies, `ViewInFFXIV.json`, `Host/` (helper + WebView2), and `INSTALL.txt`.
+Inside the zip: `ViewInFFXIV.dll`, dependencies, `ViewInFFXIV.json`, `Host/` (capture helper), and `INSTALL.txt`.
 
 **To install:** extract anywhere → `/xlsettings` → **Experimental** → **Dev Plugin Locations** → add the extracted folder → `/xlplugins` → enable **ViewInFFXIV**.
 
@@ -70,7 +70,7 @@ Friends can install like a normal third-party plugin — no dev-plugin folder se
 3. `/xlplugins` → find **ViewInFFXIV** → **Install**
 4. Enable the plugin, then `/viewin start` (or turn on **Start helper with FFXIV** in the menu)
 
-The installer zip includes `ViewInFFXIV.dll` and the `Host/` helper folder together. WebView2 Runtime is required (usually already installed with Edge).
+The installer zip includes `ViewInFFXIV.dll` and the `Host/` capture helper together.
 
 ### Output folders
 
@@ -93,16 +93,14 @@ The helper does **not** start automatically unless you enable **Start helper wit
 
 ## In-game
 
-- `/viewin` — remote (helper start/stop, room URL, volume, capture source, placement)
-- `/viewin start` / `/viewin stop` — start or stop the helper process
+- `/viewin` — remote (helper start/stop, capture window picker, placement)
+- `/viewin start` / `/viewin stop` — start or stop the capture helper
 - `/viewin place` — put the screen on the wall in front of you
-- `/viewin host` — show the helper window (login, screen-share picker)
-- `/viewin hide` — park the helper off-screen again
 - `/viewin apply <code>` — apply a wall placement share code
 
 Optional: enable **Keep screen when UI hidden** in `/viewin` to leave the wall TV visible during Scroll Lock, cutscenes, and GPose while the game HUD and plugin menu hide.
 
-Both people need Dalamud + ViewInFFXIV. Join the **same WatchTogether room URL**. A guest without the plugin sees a blank wall.
+Both people need Dalamud + ViewInFFXIV. Open the same watch party in your browsers. A guest without the plugin sees a blank wall.
 
 ## Saved spots per zone
 
@@ -120,17 +118,19 @@ When you leave and re-enter a zone, the last active spot for that territory rest
 
 ## Capture sources
 
-- **Built-in** — WebView2 inside `ViewInFFXIV.Host.exe` (default).
-- **Browser window** — live capture of Chrome, Brave, Edge, Firefox, etc. Audio stays in the browser; ViewInFFXIV is pixels only.
-- **Discord** — Discord desktop (stable, PTB, or Canary). Pop out a stream or activity for best results; audio stays in Discord.
+Pick a window in `/viewin` under **Capture window**:
 
-Capture uses **PrintWindow** (Win10/11). Large windows are scaled to fit 1920×1080 before upload.
+- **Browsers** — Chrome, Brave, Edge, Firefox, Opera, Vivaldi, LibreWolf, and others listed in the helper
+- **Discord** — Discord desktop (stable, PTB, or Canary). Pop out a stream or activity for best results
+
+Audio stays in the browser or Discord app. ViewInFFXIV captures pixels only.
+
+Capture uses **PrintWindow** (Win10/11). Large windows are scaled to fit 1920×1080 before upload. Fullscreen the video (F11) in the browser if the page has sidebars you do not want on the wall.
 
 ## Constraints
 
-- **DRM / protected capture.** Netflix-style DRM can black-screen a share. Sync Video (YouTube URL) is the reliable path.
-- **`getDisplayMedia` in WebView2** is weaker than Chrome. Screen share may need **Show host window**, or the host keeps Chrome for share while both still view in ViewInFFXIV.
-- **Audio is 2D** from the helper or browser/Discord process. Positional audio from the wall is not in v1.
+- **DRM / protected capture.** Netflix-style DRM can black-screen a share. YouTube and typical WatchTogether embeds are the reliable path.
+- **Audio is 2D** from the browser or Discord process. Positional audio from the wall is not in v1.
 - Client overlay only. It does not inject game packets or create real housing furniture.
 
 ## Credits & third-party
@@ -138,9 +138,8 @@ Capture uses **PrintWindow** (Win10/11). Large windows are scaled to fit 1920×1
 | Component | Used for | License / link |
 |-----------|----------|----------------|
 | [Dalamud](https://github.com/goatcorp/Dalamud) | Plugin host, UI, textures, hooks | [AGPL-3.0](https://github.com/goatcorp/Dalamud/blob/master/LICENSE) |
-| [WatchTogether.watch](https://watchtogether.watch/) | Watch-party sync and player (website only; not bundled) | Their terms |
-| [Microsoft WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) | Built-in browser in `ViewInFFXIV.Host` | [Microsoft EULA](https://www.microsoft.com/legal/terms-of-use) |
+| [WatchTogether.watch](https://watchtogether.watch/) | Watch-party website (use in your own browser) | Their terms |
 | [Pictomancy](https://github.com/Olde-School-RuneScape/Pictomancy) | World-space drawing when available | See package / repo |
-| .NET / Windows Forms | Helper UI and capture | Microsoft |
+| .NET / Windows Forms | Capture helper | Microsoft |
 
 ViewInFFXIV is not affiliated with Square Enix, WatchTogether, or the Dalamud team.

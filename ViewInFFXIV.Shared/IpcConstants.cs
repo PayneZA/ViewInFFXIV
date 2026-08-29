@@ -2,7 +2,6 @@ namespace ViewInFFXIV.Shared;
 
 public static class IpcConstants
 {
-    public const string DefaultUrl = "https://watchtogether.watch/";
     public const int CaptureWidth = 1280;
     public const int CaptureHeight = 720;
     public const int MaxWidth = 1920;

@@ -9,7 +9,6 @@ namespace ViewInFFXIV.Windows;
 public sealed class RemoteWindow : Window, IDisposable
 {
     private readonly Plugin plugin;
-    private string url;
     private string shareInput = "";
     private string newPresetName = "";
 
@@ -17,7 +16,6 @@ public sealed class RemoteWindow : Window, IDisposable
         : base("ViewInFFXIV##ViewInFFXIVRemote")
     {
         this.plugin = plugin;
-        url = plugin.Configuration.RoomUrl;
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new Vector2(420, 520),
@@ -35,72 +33,15 @@ public sealed class RemoteWindow : Window, IDisposable
     {
         var config = plugin.Configuration;
         var status = plugin.Host.Status;
-        var capturingWindow = config.CaptureSource == "window";
+        var hasCaptureWindow = !string.IsNullOrWhiteSpace(config.CaptureProcess);
         var helperRunning = plugin.Host.HelperAlive;
 
         DrawHelperControls(config, helperRunning);
 
         ImGui.Separator();
+        ImGui.TextUnformatted("Capture window");
         DrawSourceCombo(config, status, helperRunning);
-        ImGui.TextDisabled("Fullscreen the video in that window (F11), then capture it.");
-
-        if (!capturingWindow)
-        {
-            ImGui.Separator();
-            ImGui.TextUnformatted("WatchTogether room — chat stays in /say.");
-
-            ImGui.InputText("Room URL", ref url, 1024);
-            if (ImGui.Button("Join"))
-            {
-                config.RoomUrl = string.IsNullOrWhiteSpace(url) ? IpcConstants.DefaultUrl : url.Trim();
-                url = config.RoomUrl;
-                config.Save();
-                plugin.Host.Send(HostCommand.Navigate(config.RoomUrl));
-            }
-
-            ImGui.SameLine();
-            if (ImGui.Button("Leave"))
-            {
-                url = IpcConstants.DefaultUrl;
-                config.RoomUrl = url;
-                config.Save();
-                plugin.Host.Send(HostCommand.Navigate(url));
-            }
-
-            var volume = config.Volume;
-            if (ImGui.SliderFloat("Volume", ref volume, 0f, 1f))
-            {
-                config.Volume = volume;
-                config.Save();
-                plugin.Host.Send(HostCommand.SetVolume(volume));
-            }
-
-            var hideChrome = config.HideChrome;
-            if (ImGui.Checkbox("Hide WatchTogether chrome", ref hideChrome))
-            {
-                config.HideChrome = hideChrome;
-                config.Save();
-                plugin.Host.Send(HostCommand.SetHideChrome(hideChrome));
-            }
-
-            if (helperRunning)
-            {
-                if (ImGui.Button(status.WindowVisible ? "Hide host window" : "Show host window"))
-                {
-                    if (status.WindowVisible)
-                        plugin.Host.HideHostWindow();
-                    else
-                        plugin.Host.ShowHostWindow();
-                }
-
-                ImGui.SameLine();
-                ImGui.TextDisabled("Login / screen-share picker");
-            }
-        }
-        else
-        {
-            ImGui.TextDisabled("Audio stays in that browser or Discord.");
-        }
+        ImGui.TextDisabled("Pick a browser or Discord window. Audio stays in that app.");
 
         ImGui.Separator();
         ImGui.TextUnformatted("House screen — sliders move it live");
@@ -200,7 +141,7 @@ public sealed class RemoteWindow : Window, IDisposable
 
         ImGui.Separator();
         DrawStatus(status, helperRunning);
-        DrawPreview(capturingWindow, helperRunning);
+        DrawPreview(hasCaptureWindow, helperRunning);
     }
 
     private void DrawSavedSpots(Configuration config)
@@ -297,12 +238,12 @@ public sealed class RemoteWindow : Window, IDisposable
     private void DrawSourceCombo(Configuration config, HostStatus status, bool helperRunning)
     {
         var windows = status.Windows ?? [];
-        var labels = new List<string> { "Built-in" };
+        var labels = new List<string> { "(none)" };
         var sources = new List<BrowserWindowInfo?> { null };
         var current = 0;
         var waiting = false;
 
-        if (config.CaptureSource == "window")
+        if (hasSavedCapture(config))
         {
             var matchIndex = windows.FindIndex(w =>
                 w.Process.Equals(config.CaptureProcess, StringComparison.OrdinalIgnoreCase)
@@ -328,7 +269,7 @@ public sealed class RemoteWindow : Window, IDisposable
             sources.Add(window);
         }
 
-        if (config.CaptureSource == "window" && !waiting)
+        if (hasSavedCapture(config) && !waiting)
         {
             var liveIndex = windows.FindIndex(w =>
                 w.Process.Equals(config.CaptureProcess, StringComparison.OrdinalIgnoreCase)
@@ -350,12 +291,12 @@ public sealed class RemoteWindow : Window, IDisposable
             ImGui.BeginDisabled();
 
         var items = labels.ToArray();
-        if (ImGui.Combo("Source", ref current, items, items.Length))
+        if (ImGui.Combo("Window", ref current, items, items.Length))
         {
             if (current <= 0)
-                plugin.SetCaptureSource("webview");
+                plugin.SetCaptureWindow(null);
             else if (sources[current] is { } chosen)
-                plugin.SetCaptureSource("window", chosen);
+                plugin.SetCaptureWindow(chosen);
         }
 
         ImGui.SameLine();
@@ -365,6 +306,9 @@ public sealed class RemoteWindow : Window, IDisposable
         if (!helperRunning)
             ImGui.EndDisabled();
     }
+
+    private static bool hasSavedCapture(Configuration config) =>
+        !string.IsNullOrWhiteSpace(config.CaptureProcess);
 
     private void DrawStatus(HostStatus status, bool helperRunning)
     {
@@ -376,23 +320,21 @@ public sealed class RemoteWindow : Window, IDisposable
 
         var source = status.Source == "window"
             ? (string.IsNullOrEmpty(status.CapturedTitle) ? "browser" : status.CapturedTitle)
-            : (status.Loaded ? "loaded" : "loading");
+            : "none";
         ImGui.TextUnformatted(
             $"Helper: alive   " +
-            $"{(status.Source == "window" ? "Window" : "WebView")}: {source}   " +
+            $"Window: {source}   " +
             $"Capture: {(string.IsNullOrEmpty(status.Capture) ? "—" : status.Capture)}   " +
             $"FPS: {status.Fps:0}   " +
             $"{status.Width}x{status.Height}");
         if (!string.IsNullOrEmpty(status.Error))
             ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), status.Error);
-        if (status.Source != "window")
-            ImGui.TextDisabled(status.Url);
         ImGui.TextDisabled(plugin.Renderer.UsingPictomancy
             ? "World draw: Pictomancy (occluded by walls)"
             : "World draw: WorldToScreen fallback");
     }
 
-    private void DrawPreview(bool capturingWindow, bool helperRunning)
+    private void DrawPreview(bool hasCaptureWindow, bool helperRunning)
     {
         if (!helperRunning)
         {
@@ -403,9 +345,9 @@ public sealed class RemoteWindow : Window, IDisposable
         var texture = plugin.Host.Texture;
         if (texture == null)
         {
-            ImGui.TextUnformatted(capturingWindow
-                ? "No video frame yet. Fullscreen the video in that window (F11)."
-                : "No video frame yet. Join a room, or Show host window if the page needs login.");
+            ImGui.TextUnformatted(hasCaptureWindow
+                ? "No video frame yet. Fullscreen the video in that window (F11) if needed."
+                : "Select a browser or Discord window above.");
             return;
         }
 

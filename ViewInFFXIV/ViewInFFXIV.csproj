@@ -1,6 +1,6 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.0.1.0</Version>
+    <Version>1.1.0.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -9,8 +9,8 @@
     <Name>ViewInFFXIV</Name>
     <InternalName>ViewInFFXIV</InternalName>
     <DalamudApiLevel>15</DalamudApiLevel>
-    <Punchline>Put WatchTogether on a wall in your house.</Punchline>
-    <Description>Hosts WatchTogether.watch in a helper process and draws the video on a 16:9 screen in FFXIV housing. Chat stays in /say. Open with /viewin.</Description>
+    <Punchline>Put a browser window on a wall in your house.</Punchline>
+    <Description>Captures a browser or Discord window and draws it on a 16:9 screen in FFXIV housing. Use your own browser (uBlock, etc.). Open with /viewin.</Description>
     <Tags>utility;housing;video;watchtogether</Tags>
     <RepoUrl>https://github.com/PayneZA/ViewInFFXIV</RepoUrl>
     <MakeZip>true</MakeZip>
@@ -37,10 +37,13 @@
       <HostOut Condition="!Exists('$(_HostOutAnyCpu)')">$(_HostOutFlat)</HostOut>
     </PropertyGroup>
     <ItemGroup>
-      <HostFiles Include="$(HostOut)**\*.*" Exclude="$(HostOut)**\*.pdb" />
+      <StaleWebView Include="$(OutputPath)Host\Microsoft.Web.WebView2*;$(OutputPath)Host\WebView2Loader.dll" />
+      <HostFiles Include="$(HostOut)**\*.*"
+                 Exclude="$(HostOut)**\*.pdb;$(HostOut)**\Microsoft.Web.WebView2*;$(HostOut)**\WebView2Loader.dll;$(HostOut)**\runtimes\**\*.*" />
     </ItemGroup>
+    <Delete Files="@(StaleWebView)" ContinueOnError="true" />
+    <RemoveDir Directories="$(OutputPath)Host\runtimes" ContinueOnError="true" />
     <Copy SourceFiles="@(HostFiles)" DestinationFolder="$(OutputPath)Host\%(RecursiveDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(HostOut)runtimes\win-x64\native\WebView2Loader.dll" DestinationFolder="$(OutputPath)Host" SkipUnchangedFiles="true" Condition="Exists('$(HostOut)runtimes\win-x64\native\WebView2Loader.dll')" />
   </Target>
   <PropertyGroup>
     <DistDir>$(MSBuildThisFileDirectory)..\dist\</DistDir>
@@ -54,7 +57,7 @@
       <StaleHostFiles Include="$(OutputPath)Host\InView*" />
       <PluginPack Include="$(OutputPath)*.dll" Exclude="$(OutputPath)InView*.dll;$(OutputPath)InView.*" />
       <PluginPack Include="$(OutputPath)ViewInFFXIV.json" />
-      <HostPack Include="$(OutputPath)Host\**\*.*" Exclude="$(OutputPath)Host\**\*.pdb;$(OutputPath)Host\InView*" />
+      <HostPack Include="$(OutputPath)Host\**\*.*" Exclude="$(OutputPath)Host\**\*.pdb;$(OutputPath)Host\InView*;$(OutputPath)Host\Microsoft.Web.WebView2*;$(OutputPath)Host\WebView2Loader.dll;$(OutputPath)Host\runtimes\**\*.*" />
     </ItemGroup>
     <Delete Files="@(StalePluginFiles)" ContinueOnError="true" />
     <Delete Files="@(StaleHostFiles)" ContinueOnError="true" />
@@ -65,7 +68,7 @@
     <WriteLinesToFile
       File="$(StageDir)INSTALL.txt"
       Overwrite="true"
-      Lines="ViewInFFXIV dev plugin pack;Extract this folder anywhere (keep ViewInFFXIV.dll and Host/ together).;In game: /xlsettings - Experimental - Dev Plugin Locations - add this folder.;Then /xlplugins - Dev Tools - enable ViewInFFXIV.;Requires Dalamud API 15, .NET 10, and WebView2 Runtime." />
+      Lines="ViewInFFXIV dev plugin pack;Extract this folder anywhere (keep ViewInFFXIV.dll and Host/ together).;In game: /xlsettings - Experimental - Dev Plugin Locations - add this folder.;Then /xlplugins - Dev Tools - enable ViewInFFXIV.;Requires Dalamud API 15 and .NET 10." />
     <Delete Files="$(ReleaseZip);$(ReleaseZipVersioned)" ContinueOnError="true" />
     <ZipDirectory SourceDirectory="$(StageDir)" DestinationFile="$(ReleaseZip)" Overwrite="true" />
     <Copy SourceFiles="$(ReleaseZip)" DestinationFiles="$(ReleaseZipVersioned)" SkipUnchangedFiles="false" />

@@ -66,10 +66,6 @@ public sealed class HostClient : IDisposable
         outbound.Enqueue(command);
     }
 
-    public void ShowHostWindow() => Send(HostCommand.SetVisible(true));
-
-    public void HideHostWindow() => Send(HostCommand.SetVisible(false));
-
     public void StartHost()
     {
         HostEnabled = true;
