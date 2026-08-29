@@ -36,7 +36,6 @@ public sealed class Plugin : IDalamudPlugin
     public ScreenRenderer Renderer { get; }
 
     private readonly RemoteWindow remote;
-    private string lastSentSource = "";
     private long lastSentHwnd;
     private bool helperWasAlive;
     private uint lastTerritoryType;
@@ -44,13 +43,12 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-        Configuration.RoomUrl ??= IpcConstants.DefaultUrl;
-        if (string.IsNullOrWhiteSpace(Configuration.CaptureSource))
-            Configuration.CaptureSource = "webview";
 
         if (Configuration.Version < 3)
             PlacementPresets.MigrateFromV2(Configuration);
-        Configuration.Version = 3;
+        if (Configuration.Version < 4)
+            MigrateToV4(Configuration);
+        Configuration.Version = 4;
         Configuration.SavedPlacements ??= [];
 
         lastTerritoryType = ClientState.TerritoryType;
@@ -71,7 +69,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open ViewInFFXIV. /viewin start|stop  /viewin place  /viewin host  /viewin hide  /viewin apply <code>",
+            HelpMessage = "Open ViewInFFXIV. /viewin start|stop  /viewin place  /viewin apply <code>",
         });
 
         PluginInterface.UiBuilder.Draw += Draw;
@@ -109,38 +107,26 @@ public sealed class Plugin : IDalamudPlugin
 
     public void PushHostState()
     {
-        if (Configuration.CaptureSource != "window")
-        {
-            Host.Send(HostCommand.Navigate(Configuration.RoomUrl));
-            Host.Send(HostCommand.SetVolume(Configuration.Volume));
-            Host.Send(HostCommand.SetHideChrome(Configuration.HideChrome));
-        }
-
-        lastSentSource = "";
         lastSentHwnd = 0;
+        Host.Send(HostCommand.ListWindows());
         BindCaptureSource();
     }
 
-    public void SetCaptureSource(string source, BrowserWindowInfo? window = null)
+    public void SetCaptureWindow(BrowserWindowInfo? window)
     {
-        if (source == "window" && window != null)
+        if (window == null || window.Hwnd == 0)
         {
-            Configuration.CaptureSource = "window";
-            Configuration.CaptureProcess = window.Process;
-            Configuration.CaptureTitle = window.Title;
-            Host.Send(HostCommand.SetSource("window", window.Hwnd));
-            lastSentSource = "window";
-            lastSentHwnd = window.Hwnd;
+            Configuration.CaptureProcess = "";
+            Configuration.CaptureTitle = "";
+            Host.Send(HostCommand.ClearWindow());
+            lastSentHwnd = 0;
         }
         else
         {
-            Configuration.CaptureSource = "webview";
-            Host.Send(HostCommand.Navigate(Configuration.RoomUrl));
-            Host.Send(HostCommand.SetVolume(Configuration.Volume));
-            Host.Send(HostCommand.SetHideChrome(Configuration.HideChrome));
-            Host.Send(HostCommand.SetSource("webview"));
-            lastSentSource = "webview";
-            lastSentHwnd = 0;
+            Configuration.CaptureProcess = window.Process;
+            Configuration.CaptureTitle = window.Title;
+            Host.Send(HostCommand.SetWindow(window.Hwnd));
+            lastSentHwnd = window.Hwnd;
         }
 
         Configuration.Save();
@@ -166,6 +152,12 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
+    private static void MigrateToV4(Configuration config)
+    {
+        config.CaptureProcess = "";
+        config.CaptureTitle = "";
+    }
+
     private void OnFramework(IFramework framework)
     {
         var territory = ClientState.TerritoryType;
@@ -179,7 +171,6 @@ public sealed class Plugin : IDalamudPlugin
         Host.Tick();
         if (Host.HelperAlive && !helperWasAlive)
         {
-            lastSentSource = "";
             lastSentHwnd = 0;
             PushHostState();
         }
@@ -193,17 +184,8 @@ public sealed class Plugin : IDalamudPlugin
         if (!Host.HelperAlive)
             return;
 
-        if (Configuration.CaptureSource != "window")
-        {
-            if (lastSentSource != "webview")
-            {
-                Host.Send(HostCommand.SetSource("webview"));
-                lastSentSource = "webview";
-                lastSentHwnd = 0;
-            }
-
+        if (string.IsNullOrWhiteSpace(Configuration.CaptureProcess))
             return;
-        }
 
         var windows = Host.Status.Windows ?? [];
         if (windows.Count == 0)
@@ -216,11 +198,10 @@ public sealed class Plugin : IDalamudPlugin
             w.Process.Equals(Configuration.CaptureProcess, StringComparison.OrdinalIgnoreCase));
         if (match == null || match.Hwnd == 0)
             return;
-        if (lastSentSource == "window" && lastSentHwnd == match.Hwnd)
+        if (lastSentHwnd == match.Hwnd)
             return;
 
-        Host.Send(HostCommand.SetSource("window", match.Hwnd));
-        lastSentSource = "window";
+        Host.Send(HostCommand.SetWindow(match.Hwnd));
         lastSentHwnd = match.Hwnd;
     }
 
@@ -263,21 +244,6 @@ public sealed class Plugin : IDalamudPlugin
         {
             Placement.PlaceInFront(ClientState, ObjectTable, Configuration);
             ChatGui.Print("ViewInFFXIV screen placed in front of you.", ChatPrefix);
-            return;
-        }
-
-        if (trimmed.Equals("host", StringComparison.OrdinalIgnoreCase))
-        {
-            if (!Host.HelperAlive)
-                Host.StartHost();
-            Host.ShowHostWindow();
-            ChatGui.Print("ViewInFFXIV host window shown (login / screen share).", ChatPrefix);
-            return;
-        }
-
-        if (trimmed.Equals("hide", StringComparison.OrdinalIgnoreCase))
-        {
-            Host.HideHostWindow();
             return;
         }
 

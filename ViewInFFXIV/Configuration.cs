@@ -52,17 +52,9 @@ public sealed class TerritoryPresets
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 3;
+    public int Version { get; set; } = 4;
 
     public bool AutoStartHost { get; set; }
-
-    public string RoomUrl { get; set; } = "https://watchtogether.watch/";
-
-    public float Volume { get; set; } = 1f;
-
-    public bool HideChrome { get; set; } = true;
-
-    public string CaptureSource { get; set; } = "webview";
 
     public string CaptureProcess { get; set; } = "";
 

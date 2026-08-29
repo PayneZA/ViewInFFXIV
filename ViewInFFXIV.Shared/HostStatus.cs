@@ -7,12 +7,6 @@ public sealed class HostStatus
     [JsonPropertyName("alive")]
     public bool Alive { get; set; }
 
-    [JsonPropertyName("loaded")]
-    public bool Loaded { get; set; }
-
-    [JsonPropertyName("url")]
-    public string Url { get; set; } = "";
-
     [JsonPropertyName("width")]
     public int Width { get; set; }
 
@@ -29,10 +23,7 @@ public sealed class HostStatus
     public string Capture { get; set; } = "";
 
     [JsonPropertyName("source")]
-    public string Source { get; set; } = "webview";
-
-    [JsonPropertyName("windowVisible")]
-    public bool WindowVisible { get; set; }
+    public string Source { get; set; } = "none";
 
     [JsonPropertyName("error")]
     public string? Error { get; set; }
