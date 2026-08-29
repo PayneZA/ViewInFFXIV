@@ -100,6 +100,8 @@ The helper does **not** start automatically unless you enable **Start helper wit
 - `/viewin hide` — park the helper off-screen again
 - `/viewin apply <code>` — apply a wall placement share code
 
+Optional: enable **Keep screen when UI hidden** in `/viewin` to leave the wall TV visible during Scroll Lock, cutscenes, and GPose while the game HUD and plugin menu hide.
+
 Both people need Dalamud + ViewInFFXIV. Join the **same WatchTogether room URL**. A guest without the plugin sees a blank wall.
 
 ## Saved spots per zone

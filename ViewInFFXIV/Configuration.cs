@@ -72,6 +72,8 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool ScreenEnabled { get; set; }
 
+    public bool KeepScreenWhenUiHidden { get; set; }
+
     public uint ScreenTerritory { get; set; }
 
     public float ScreenX { get; set; }

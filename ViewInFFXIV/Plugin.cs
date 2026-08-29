@@ -79,6 +79,8 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
         Framework.Update += OnFramework;
 
+        ApplyUiHidePolicy();
+
         if (Configuration.AutoStartHost)
             PushHostState();
 
@@ -99,6 +101,11 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     public void ToggleMainUi() => remote.Toggle();
+
+    internal void ApplyUiHidePolicy()
+    {
+        PluginInterface.UiBuilder.DisableAutomaticUiHide = Configuration.KeepScreenWhenUiHidden;
+    }
 
     public void PushHostState()
     {
@@ -219,8 +226,20 @@ public sealed class Plugin : IDalamudPlugin
 
     private void Draw()
     {
-        WindowSystem.Draw();
+        if (!ShouldHidePluginWindows())
+            WindowSystem.Draw();
+
         Renderer.Draw(Host.Texture);
+    }
+
+    private bool ShouldHidePluginWindows()
+    {
+        if (!Configuration.KeepScreenWhenUiHidden)
+            return false;
+
+        return GameGui.GameUiHidden
+            || ClientState.IsGPosing
+            || PluginInterface.UiBuilder.CutsceneActive;
     }
 
     private void OnCommand(string command, string args)
