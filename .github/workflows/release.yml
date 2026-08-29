@@ -63,15 +63,14 @@ jobs:
         run: |
           $zipUrl = "https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/latest.zip"
           $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-          $json = Get-Content -Raw repo.json | ConvertFrom-Json
-          $entry = $json[0]
+          $entry = @(Get-Content -Raw repo.json | ConvertFrom-Json)[0]
           $entry.AssemblyVersion = '${{ steps.version.outputs.version }}'
           $entry.TestingAssemblyVersion = '${{ steps.version.outputs.version }}'
           $entry.DownloadLinkInstall = $zipUrl
           $entry.DownloadLinkTesting = $zipUrl
           $entry.DownloadLinkUpdate = $zipUrl
           $entry.LastUpdate = "$timestamp"
-          @($entry) | ConvertTo-Json -Depth 10 | Set-Content repo.json -Encoding utf8
+          @($entry) | ConvertTo-Json -Depth 10 -AsArray | Set-Content repo.json -Encoding utf8NoBOM
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
