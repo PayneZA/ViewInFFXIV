@@ -1,9 +1,9 @@
 using System.Text.Json;
-using InView.Shared;
+using ViewInFFXIV.Shared;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
-namespace InView.Host;
+namespace ViewInFFXIV.Host;
 
 internal sealed class HostForm : Form
 {
@@ -28,7 +28,7 @@ internal sealed class HostForm : Form
     {
         profileDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "InView",
+            "ViewInFFXIV",
             "WebView2");
         Directory.CreateDirectory(profileDir);
 
@@ -42,7 +42,7 @@ internal sealed class HostForm : Form
         capture = new CaptureEngine(frames);
         pipe = new PipeServer(this);
 
-        Text = "InView — WatchTogether";
+        Text = "ViewInFFXIV — WatchTogether";
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
         ClientSize = new Size(IpcConstants.CaptureWidth, IpcConstants.CaptureHeight);
@@ -170,8 +170,8 @@ internal sealed class HostForm : Form
         try
         {
             var injectVolume = captureSource == "window" ? 0f : volume;
-            await webView.CoreWebView2.ExecuteScriptAsync($"window.__inviewVolume = {injectVolume.ToString(System.Globalization.CultureInfo.InvariantCulture)};");
-            await webView.CoreWebView2.ExecuteScriptAsync($"window.__inviewHideChrome = {(hideChrome ? "true" : "false")};");
+            await webView.CoreWebView2.ExecuteScriptAsync($"window.__viewinffxivVolume = {injectVolume.ToString(System.Globalization.CultureInfo.InvariantCulture)};");
+            await webView.CoreWebView2.ExecuteScriptAsync($"window.__viewinffxivHideChrome = {(hideChrome ? "true" : "false")};");
             await webView.CoreWebView2.ExecuteScriptAsync(ChromeScript.HideAndVolume);
         }
         catch (Exception ex)

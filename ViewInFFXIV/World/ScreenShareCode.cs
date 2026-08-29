@@ -1,10 +1,11 @@
 using System.Text;
 
-namespace InView.World;
+namespace ViewInFFXIV.World;
 
 public static class ScreenShareCode
 {
-    public const string Prefix = "IV1.";
+    public const string Prefix = "VIF1.";
+    private const string LegacyPrefix = "IV1.";
     private const byte Version = 1;
 
     public static string Export(Configuration config)
@@ -39,7 +40,7 @@ public static class ScreenShareCode
         error = "";
         if (!TryExtractBytes(raw, out var bytes))
         {
-            error = "Not an InView share code.";
+            error = "Not a ViewInFFXIV share code.";
             return false;
         }
 
@@ -59,10 +60,10 @@ public static class ScreenShareCode
             config.ScreenZ = reader.ReadSingle();
             config.ScreenYaw = WrapAngle(reader.ReadSingle());
             config.ScreenPitch = Math.Clamp(reader.ReadSingle(), -MathF.PI / 2f, MathF.PI / 2f);
-            config.ScreenWidth = Math.Clamp(reader.ReadSingle(), 1f, 10f);
-            config.PlaceDistance = Math.Clamp(reader.ReadSingle(), 1f, 12f);
-            config.PlaceHeight = Math.Clamp(reader.ReadSingle(), 0.2f, 3.5f);
-            config.PlaceStrafe = Math.Clamp(reader.ReadSingle(), -8f, 8f);
+            config.ScreenWidth = Math.Clamp(reader.ReadSingle(), PlacementLimits.MinWidth, PlacementLimits.MaxWidth);
+            config.PlaceDistance = Math.Clamp(reader.ReadSingle(), PlacementLimits.MinDistance, PlacementLimits.MaxDistance);
+            config.PlaceHeight = Math.Clamp(reader.ReadSingle(), PlacementLimits.MinHeight, PlacementLimits.MaxHeight);
+            config.PlaceStrafe = Math.Clamp(reader.ReadSingle(), PlacementLimits.MinStrafe, PlacementLimits.MaxStrafe);
             config.HasAnchor = reader.ReadBoolean();
             config.AnchorX = reader.ReadSingle();
             config.AnchorY = reader.ReadSingle();
@@ -88,21 +89,27 @@ public static class ScreenShareCode
         if (string.IsNullOrWhiteSpace(raw))
             return false;
 
-        var start = raw.IndexOf(Prefix, StringComparison.OrdinalIgnoreCase);
+        var vifStart = raw.IndexOf(Prefix, StringComparison.OrdinalIgnoreCase);
+        var legacyStart = raw.IndexOf(LegacyPrefix, StringComparison.OrdinalIgnoreCase);
+        var start = vifStart >= 0 ? vifStart : legacyStart;
         if (start < 0)
             return false;
 
-        var end = start + Prefix.Length;
+        var tokenPrefix = vifStart >= 0 && (legacyStart < 0 || vifStart <= legacyStart)
+            ? Prefix
+            : LegacyPrefix;
+
+        var end = start + tokenPrefix.Length;
         while (end < raw.Length && !char.IsWhiteSpace(raw[end]))
             end++;
         var token = raw[start..end];
 
-        if (token.Length <= Prefix.Length)
+        if (token.Length <= tokenPrefix.Length)
             return false;
 
         try
         {
-            bytes = FromBase64Url(token[Prefix.Length..]);
+            bytes = FromBase64Url(token[tokenPrefix.Length..]);
             return bytes.Length > 0;
         }
         catch

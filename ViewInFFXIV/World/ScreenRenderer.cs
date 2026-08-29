@@ -3,7 +3,7 @@ using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Plugin.Services;
 using Pictomancy;
 
-namespace InView.World;
+namespace ViewInFFXIV.World;
 
 public sealed class ScreenRenderer : IDisposable
 {

@@ -1,10 +1,10 @@
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
-using InView.World;
-using InView.Shared;
+using ViewInFFXIV.World;
+using ViewInFFXIV.Shared;
 
-namespace InView.Windows;
+namespace ViewInFFXIV.Windows;
 
 public sealed class RemoteWindow : Window, IDisposable
 {
@@ -13,7 +13,7 @@ public sealed class RemoteWindow : Window, IDisposable
     private string shareInput = "";
 
     public RemoteWindow(Plugin plugin)
-        : base("InView##InViewRemote")
+        : base("ViewInFFXIV##ViewInFFXIVRemote")
     {
         this.plugin = plugin;
         url = plugin.Configuration.RoomUrl;
@@ -35,8 +35,12 @@ public sealed class RemoteWindow : Window, IDisposable
         var config = plugin.Configuration;
         var status = plugin.Host.Status;
         var capturingWindow = config.CaptureSource == "window";
+        var helperRunning = plugin.Host.HelperAlive;
 
-        DrawSourceCombo(config, status);
+        DrawHelperControls(config, helperRunning);
+
+        ImGui.Separator();
+        DrawSourceCombo(config, status, helperRunning);
         ImGui.TextDisabled("Fullscreen the video in that window (F11), then capture it.");
 
         if (!capturingWindow)
@@ -78,20 +82,23 @@ public sealed class RemoteWindow : Window, IDisposable
                 plugin.Host.Send(HostCommand.SetHideChrome(hideChrome));
             }
 
-            if (ImGui.Button(status.WindowVisible ? "Hide host window" : "Show host window"))
+            if (helperRunning)
             {
-                if (status.WindowVisible)
-                    plugin.Host.HideHostWindow();
-                else
-                    plugin.Host.ShowHostWindow();
-            }
+                if (ImGui.Button(status.WindowVisible ? "Hide host window" : "Show host window"))
+                {
+                    if (status.WindowVisible)
+                        plugin.Host.HideHostWindow();
+                    else
+                        plugin.Host.ShowHostWindow();
+                }
 
-            ImGui.SameLine();
-            ImGui.TextDisabled("Login / screen-share picker");
+                ImGui.SameLine();
+                ImGui.TextDisabled("Login / screen-share picker");
+            }
         }
         else
         {
-            ImGui.TextDisabled("Audio stays in that browser.");
+            ImGui.TextDisabled("Audio stays in that browser or Discord.");
         }
 
         ImGui.Separator();
@@ -114,21 +121,21 @@ public sealed class RemoteWindow : Window, IDisposable
         ImGui.TextDisabled("Anchor stays where you last placed. Re-place to move the origin.");
 
         var distance = config.PlaceDistance;
-        if (LiveSlider("Distance", ref distance, 1f, 12f))
+        if (LiveSlider("Distance", ref distance, PlacementLimits.MinDistance, PlacementLimits.MaxDistance))
         {
             config.PlaceDistance = distance;
             ScreenPlacement.ApplyLive(config);
         }
 
         var height = config.PlaceHeight;
-        if (LiveSlider("Height", ref height, 0.2f, 3.5f))
+        if (LiveSlider("Height", ref height, PlacementLimits.MinHeight, PlacementLimits.MaxHeight))
         {
             config.PlaceHeight = height;
             ScreenPlacement.ApplyLive(config);
         }
 
         var strafe = config.PlaceStrafe;
-        if (LiveSlider("Left / right", ref strafe, -8f, 8f))
+        if (LiveSlider("Left / right", ref strafe, PlacementLimits.MinStrafe, PlacementLimits.MaxStrafe))
         {
             config.PlaceStrafe = strafe;
             ScreenPlacement.ApplyLive(config);
@@ -143,8 +150,21 @@ public sealed class RemoteWindow : Window, IDisposable
             config.ScreenPitch = pitch;
 
         var width = config.ScreenWidth;
-        if (LiveSlider("Width (yalms, 16:9)", ref width, 1f, 10f))
+        if (LiveSlider("Width (yalms, 16:9)", ref width, PlacementLimits.MinWidth, PlacementLimits.MaxWidth))
             config.ScreenWidth = width;
+
+        if (ImGui.Button("Reset to defaults"))
+        {
+            PlacementLimits.ResetToDefaults(config);
+            config.Save();
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Remove from zone"))
+        {
+            PlacementLimits.RemoveFromZone(config);
+            config.Save();
+        }
 
         ImGui.Separator();
         ImGui.TextUnformatted("Share screen position");
@@ -163,11 +183,34 @@ public sealed class RemoteWindow : Window, IDisposable
         ImGui.TextDisabled("Tell-safe. Does not include the room URL.");
 
         ImGui.Separator();
-        DrawStatus(status);
-        DrawPreview(capturingWindow);
+        DrawStatus(status, helperRunning);
+        DrawPreview(capturingWindow, helperRunning);
     }
 
-    private void DrawSourceCombo(Configuration config, HostStatus status)
+    private void DrawHelperControls(Configuration config, bool helperRunning)
+    {
+        ImGui.TextUnformatted($"Helper: {(helperRunning ? "running" : "stopped")}");
+
+        if (helperRunning)
+        {
+            if (ImGui.Button("Stop helper"))
+                plugin.Host.StopHost();
+        }
+        else if (ImGui.Button("Start helper"))
+        {
+            plugin.Host.StartHost();
+        }
+
+        ImGui.SameLine();
+        var autoStart = config.AutoStartHost;
+        if (ImGui.Checkbox("Start helper with FFXIV", ref autoStart))
+        {
+            config.AutoStartHost = autoStart;
+            config.Save();
+        }
+    }
+
+    private void DrawSourceCombo(Configuration config, HostStatus status, bool helperRunning)
     {
         var windows = status.Windows ?? [];
         var labels = new List<string> { "Built-in" };
@@ -219,6 +262,9 @@ public sealed class RemoteWindow : Window, IDisposable
         if (current < 0 || current >= labels.Count)
             current = 0;
 
+        if (!helperRunning)
+            ImGui.BeginDisabled();
+
         var items = labels.ToArray();
         if (ImGui.Combo("Source", ref current, items, items.Length))
         {
@@ -231,15 +277,24 @@ public sealed class RemoteWindow : Window, IDisposable
         ImGui.SameLine();
         if (ImGui.Button("Refresh"))
             plugin.Host.Send(HostCommand.ListWindows());
+
+        if (!helperRunning)
+            ImGui.EndDisabled();
     }
 
-    private void DrawStatus(HostStatus status)
+    private void DrawStatus(HostStatus status, bool helperRunning)
     {
+        if (!helperRunning)
+        {
+            ImGui.TextUnformatted("Helper: stopped");
+            return;
+        }
+
         var source = status.Source == "window"
             ? (string.IsNullOrEmpty(status.CapturedTitle) ? "browser" : status.CapturedTitle)
             : (status.Loaded ? "loaded" : "loading");
         ImGui.TextUnformatted(
-            $"Helper: {(plugin.Host.HelperAlive ? "alive" : "starting…")}   " +
+            $"Helper: alive   " +
             $"{(status.Source == "window" ? "Window" : "WebView")}: {source}   " +
             $"Capture: {(string.IsNullOrEmpty(status.Capture) ? "—" : status.Capture)}   " +
             $"FPS: {status.Fps:0}   " +
@@ -253,8 +308,14 @@ public sealed class RemoteWindow : Window, IDisposable
             : "World draw: WorldToScreen fallback");
     }
 
-    private void DrawPreview(bool capturingWindow)
+    private void DrawPreview(bool capturingWindow, bool helperRunning)
     {
+        if (!helperRunning)
+        {
+            ImGui.TextUnformatted("Helper stopped. Click Start helper to begin.");
+            return;
+        }
+
         var texture = plugin.Host.Texture;
         if (texture == null)
         {

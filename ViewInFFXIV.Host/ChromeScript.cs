@@ -1,14 +1,14 @@
-namespace InView.Host;
+namespace ViewInFFXIV.Host;
 
 internal static class ChromeScript
 {
     public const string HideAndVolume = """
         (() => {
-          window.__inviewVolume = window.__inviewVolume ?? 1;
-          window.__inviewHideChrome = window.__inviewHideChrome ?? true;
+          window.__viewinffxivVolume = window.__viewinffxivVolume ?? 1;
+          window.__viewinffxivHideChrome = window.__viewinffxivHideChrome ?? true;
 
           const applyVolume = () => {
-            const v = Number(window.__inviewVolume);
+            const v = Number(window.__viewinffxivVolume);
             document.querySelectorAll('video, audio').forEach((el) => {
               try {
                 el.volume = Math.min(1, Math.max(0, v));
@@ -18,14 +18,14 @@ internal static class ChromeScript
           };
 
           const applyChrome = () => {
-            let style = document.getElementById('inview-chrome-hide');
-            if (!window.__inviewHideChrome) {
+            let style = document.getElementById('viewinffxiv-chrome-hide');
+            if (!window.__viewinffxivHideChrome) {
               if (style) style.remove();
               return;
             }
             if (!style) {
               style = document.createElement('style');
-              style.id = 'inview-chrome-hide';
+              style.id = 'viewinffxiv-chrome-hide';
               document.documentElement.appendChild(style);
             }
             style.textContent = `
@@ -48,8 +48,8 @@ internal static class ChromeScript
 
           applyVolume();
           applyChrome();
-          if (!window.__inviewHooked) {
-            window.__inviewHooked = true;
+          if (!window.__viewinffxivHooked) {
+            window.__viewinffxivHooked = true;
             setInterval(() => { applyVolume(); applyChrome(); }, 750);
           }
           return true;

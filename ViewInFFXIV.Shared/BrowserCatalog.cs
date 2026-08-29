@@ -1,4 +1,4 @@
-namespace InView.Shared;
+namespace ViewInFFXIV.Shared;
 
 public static class BrowserCatalog
 {
@@ -6,6 +6,7 @@ public static class BrowserCatalog
     {
         "chrome", "brave", "msedge", "firefox", "opera", "vivaldi", "arc",
         "librewolf", "floorp", "chromium", "waterfox", "thorium", "iridium",
+        "discord", "discordptb", "discordcanary",
     };
 
     public static readonly Dictionary<string, string> FriendlyNames = new(StringComparer.OrdinalIgnoreCase)
@@ -23,6 +24,9 @@ public static class BrowserCatalog
         ["waterfox"] = "Waterfox",
         ["thorium"] = "Thorium",
         ["iridium"] = "Iridium",
+        ["discord"] = "Discord",
+        ["discordptb"] = "Discord PTB",
+        ["discordcanary"] = "Discord Canary",
     };
 
     public static string Friendly(string process) =>

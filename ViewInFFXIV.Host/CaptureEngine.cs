@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
-using InView.Shared;
+using ViewInFFXIV.Shared;
 
-namespace InView.Host;
+namespace ViewInFFXIV.Host;
 
 internal sealed class CaptureEngine : IDisposable
 {

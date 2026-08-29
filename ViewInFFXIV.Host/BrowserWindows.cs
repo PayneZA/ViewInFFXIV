@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using InView.Shared;
+using ViewInFFXIV.Shared;
 
-namespace InView.Host;
+namespace ViewInFFXIV.Host;
 
 internal static class BrowserWindows
 {
@@ -26,7 +26,7 @@ internal static class BrowserWindows
             {
                 using var process = Process.GetProcessById((int)pid);
                 var name = process.ProcessName;
-                if (name.Equals("InView.Host", StringComparison.OrdinalIgnoreCase))
+                if (name.Equals("ViewInFFXIV.Host", StringComparison.OrdinalIgnoreCase))
                     return true;
                 if (!BrowserCatalog.Processes.Contains(name))
                     return true;

@@ -1,4 +1,4 @@
-namespace InView.Shared;
+namespace ViewInFFXIV.Shared;
 
 public static class IpcConstants
 {
@@ -10,13 +10,13 @@ public static class IpcConstants
     public const int CaptureIntervalMs = 33;
     public const int MaxNativeWidth = 7680;
     public const int MaxNativeHeight = 2160;
-    public const uint FrameMagic = 0x564E5749; // 'IWNV'
+    public const uint FrameMagic = 0x58464956; // 'VIFX'
 
-    public static string PipeName => $"InView.Ipc.{Sanitize(Environment.UserName)}";
+    public static string PipeName => $"ViewInFFXIV.Ipc.{Sanitize(Environment.UserName)}";
 
-    public static string FrameMapName => $"InView.Frames.{Sanitize(Environment.UserName)}";
+    public static string FrameMapName => $"ViewInFFXIV.Frames.{Sanitize(Environment.UserName)}";
 
-    public static string MutexName => $"InView.Host.{Sanitize(Environment.UserName)}";
+    public static string MutexName => $"ViewInFFXIV.Host.{Sanitize(Environment.UserName)}";
 
     private static string Sanitize(string value)
     {

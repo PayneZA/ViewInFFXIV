@@ -2,7 +2,7 @@ using System.IO.MemoryMappedFiles;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace InView.Shared;
+namespace ViewInFFXIV.Shared;
 
 /// <summary>
 /// Double-buffered BGRA frames in an NT memory-mapped section.
@@ -61,7 +61,7 @@ public sealed unsafe class FrameBuffer : IDisposable
         {
             view.Dispose();
             file.Dispose();
-            throw new InvalidOperationException("Failed to map InView frame buffer.");
+            throw new InvalidOperationException("Failed to map ViewInFFXIV frame buffer.");
         }
 
         var header = (Header*)ptr;

@@ -7,12 +7,12 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <RootNamespace>InView.Host</RootNamespace>
-    <AssemblyName>InView.Host</AssemblyName>
+    <RootNamespace>ViewInFFXIV.Host</RootNamespace>
+    <AssemblyName>ViewInFFXIV.Host</AssemblyName>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\InView.Shared\InView.Shared.csproj" />
+    <ProjectReference Include="..\ViewInFFXIV.Shared\ViewInFFXIV.Shared.csproj" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3537.50" />
   </ItemGroup>
   <Target Name="RemoveWpfWebView" AfterTargets="ResolveAssemblyReferences">
