@@ -1,7 +1,61 @@
 using System.Numerics;
 using Dalamud.Plugin.Services;
 
-namespace InView.World;
+namespace ViewInFFXIV.World;
+
+public static class PlacementLimits
+{
+    public const float MinDistance = 0.5f;
+    public const float MaxDistance = 30f;
+    public const float DefaultDistance = 4.5f;
+
+    public const float MinHeight = 0f;
+    public const float MaxHeight = 20f;
+    public const float DefaultHeight = 1.35f;
+
+    public const float MinStrafe = -25f;
+    public const float MaxStrafe = 25f;
+
+    public const float MinWidth = 0.5f;
+    public const float MaxWidth = 20f;
+    public const float DefaultWidth = 3.2f;
+
+    public static void Clamp(Configuration config)
+    {
+        config.PlaceDistance = Math.Clamp(config.PlaceDistance, MinDistance, MaxDistance);
+        config.PlaceHeight = Math.Clamp(config.PlaceHeight, MinHeight, MaxHeight);
+        config.PlaceStrafe = Math.Clamp(config.PlaceStrafe, MinStrafe, MaxStrafe);
+        config.ScreenWidth = Math.Clamp(config.ScreenWidth, MinWidth, MaxWidth);
+        config.ScreenPitch = Math.Clamp(config.ScreenPitch, -MathF.PI / 2f, MathF.PI / 2f);
+    }
+
+    public static void ResetToDefaults(Configuration config)
+    {
+        config.PlaceDistance = DefaultDistance;
+        config.PlaceHeight = DefaultHeight;
+        config.PlaceStrafe = 0f;
+        config.ScreenWidth = DefaultWidth;
+        config.ScreenPitch = 0f;
+        if (config.HasAnchor)
+            config.ScreenYaw = config.AnchorYaw;
+        if (config.HasAnchor)
+            ScreenPlacement.ApplyLive(config);
+    }
+
+    public static void RemoveFromZone(Configuration config)
+    {
+        config.ScreenEnabled = false;
+        config.HasAnchor = false;
+        config.ScreenTerritory = 0;
+        config.ScreenX = 0f;
+        config.ScreenY = 0f;
+        config.ScreenZ = 0f;
+        config.AnchorX = 0f;
+        config.AnchorY = 0f;
+        config.AnchorZ = 0f;
+        config.AnchorYaw = 0f;
+    }
+}
 
 public sealed class ScreenPlacement
 {

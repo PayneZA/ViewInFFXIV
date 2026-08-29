@@ -1,12 +1,14 @@
 using System.Numerics;
 using Dalamud.Configuration;
 
-namespace InView;
+namespace ViewInFFXIV;
 
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
+
+    public bool AutoStartHost { get; set; }
 
     public string RoomUrl { get; set; } = "https://watchtogether.watch/";
 

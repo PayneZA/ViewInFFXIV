@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace InView.Shared;
+namespace ViewInFFXIV.Shared;
 
 public sealed class HostCommand
 {

@@ -6,9 +6,9 @@ using System.Text.Json;
 using Dalamud.Interface.Textures;
 using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Plugin.Services;
-using InView.Shared;
+using ViewInFFXIV.Shared;
 
-namespace InView.Host;
+namespace ViewInFFXIV.Host;
 
 public sealed class HostClient : IDisposable
 {
@@ -35,12 +35,15 @@ public sealed class HostClient : IDisposable
 
     public bool HelperAlive => process is { HasExited: false };
 
-    public HostClient(IPluginLog log, ITextureProvider textures, string assemblyDirectory)
+    public bool HostEnabled { get; private set; }
+
+    public HostClient(IPluginLog log, ITextureProvider textures, string assemblyDirectory, bool hostEnabled)
     {
         this.log = log;
         this.textures = textures;
-        var nested = Path.Combine(assemblyDirectory, "Host", "InView.Host.exe");
-        var beside = Path.Combine(assemblyDirectory, "InView.Host.exe");
+        HostEnabled = hostEnabled;
+        var nested = Path.Combine(assemblyDirectory, "Host", "ViewInFFXIV.Host.exe");
+        var beside = Path.Combine(assemblyDirectory, "ViewInFFXIV.Host.exe");
         hostExe = File.Exists(nested) ? nested : beside;
     }
 
@@ -50,6 +53,9 @@ public sealed class HostClient : IDisposable
             return;
 
         EnsureProcess();
+        if (!HelperAlive)
+            return;
+
         EnsurePipe();
         PumpIpc();
         UploadFrame();
@@ -64,13 +70,56 @@ public sealed class HostClient : IDisposable
 
     public void HideHostWindow() => Send(HostCommand.SetVisible(false));
 
+    public void StartHost()
+    {
+        HostEnabled = true;
+        EnsureProcess();
+    }
+
+    public void StopHost()
+    {
+        HostEnabled = false;
+        try
+        {
+            if (pipe is { IsConnected: true } && writer != null)
+                writer.WriteLine(JsonSerializer.Serialize(HostCommand.Quit()));
+        }
+        catch
+        {
+            // ignored
+        }
+
+        DisposePipe();
+        wrap?.Dispose();
+        wrap = null;
+        frames?.Dispose();
+        frames = null;
+        lastGeneration = 0;
+
+        try
+        {
+            if (process is { HasExited: false })
+                process.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+            // ignored
+        }
+
+        process?.Dispose();
+        process = null;
+        Status = new HostStatus();
+    }
+
     private void EnsureProcess()
     {
+        if (!HostEnabled)
+            return;
         if (HelperAlive)
             return;
         if (!File.Exists(hostExe))
         {
-            Status = new HostStatus { Error = $"InView.Host.exe not found at {hostExe}" };
+            Status = new HostStatus { Error = $"ViewInFFXIV.Host.exe not found at {hostExe}" };
             return;
         }
 
@@ -87,11 +136,11 @@ public sealed class HostClient : IDisposable
                 UseShellExecute = false,
             });
             lastLaunchUtc = DateTime.UtcNow;
-            log.Information("Started InView.Host from {Path}", hostExe);
+            log.Information("Started ViewInFFXIV.Host from {Path}", hostExe);
         }
         catch (Exception ex)
         {
-            log.Error(ex, "Failed to start InView.Host");
+            log.Error(ex, "Failed to start ViewInFFXIV.Host");
             Status = new HostStatus { Error = ex.Message };
         }
     }
@@ -154,7 +203,7 @@ public sealed class HostClient : IDisposable
         }
         catch (Exception ex)
         {
-            log.Debug(ex, "InView IPC pump failed");
+            log.Debug(ex, "ViewInFFXIV IPC pump failed");
             DisposePipe();
         }
     }
@@ -174,7 +223,7 @@ public sealed class HostClient : IDisposable
         try
         {
             var spec = RawImageSpecification.Bgra32(width, height);
-            var next = textures.CreateFromRaw(spec, upload.AsSpan(0, packed), "InView.Video");
+            var next = textures.CreateFromRaw(spec, upload.AsSpan(0, packed), "ViewInFFXIV.Video");
             wrap?.Dispose();
             wrap = next;
             lastGeneration = generation;
@@ -185,7 +234,7 @@ public sealed class HostClient : IDisposable
         }
         catch (Exception ex)
         {
-            log.Debug(ex, "Failed to upload InView frame");
+            log.Debug(ex, "Failed to upload ViewInFFXIV frame");
         }
     }
 
@@ -208,33 +257,10 @@ public sealed class HostClient : IDisposable
 
     public void Dispose()
     {
+        if (disposed)
+            return;
+
         disposed = true;
-        try
-        {
-            if (pipe is { IsConnected: true } && writer != null)
-                writer.WriteLine(JsonSerializer.Serialize(HostCommand.Quit()));
-        }
-        catch
-        {
-            // ignored
-        }
-
-        DisposePipe();
-        wrap?.Dispose();
-        wrap = null;
-        frames?.Dispose();
-        frames = null;
-        try
-        {
-            if (process is { HasExited: false })
-                process.Kill(entireProcessTree: true);
-        }
-        catch
-        {
-            // ignored
-        }
-
-        process?.Dispose();
-        process = null;
+        StopHost();
     }
 }

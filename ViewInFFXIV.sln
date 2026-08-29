@@ -7,11 +7,11 @@ Project("{2150E333-8FDC-42A3-9474-1A395E6E46EA}") = "Solution Items", "Solution 
 		README.md = README.md
 	EndProjectSection
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "InView.Shared", "InView.Shared\InView.Shared.csproj", "{A1B2C3D4-E5F6-7890-ABCD-111111111111}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ViewInFFXIV.Shared", "ViewInFFXIV.Shared\ViewInFFXIV.Shared.csproj", "{A1B2C3D4-E5F6-7890-ABCD-111111111111}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "InView.Host", "InView.Host\InView.Host.csproj", "{A1B2C3D4-E5F6-7890-ABCD-222222222222}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ViewInFFXIV.Host", "ViewInFFXIV.Host\ViewInFFXIV.Host.csproj", "{A1B2C3D4-E5F6-7890-ABCD-222222222222}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "InView", "InView\InView.csproj", "{A1B2C3D4-E5F6-7890-ABCD-333333333333}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ViewInFFXIV", "ViewInFFXIV\ViewInFFXIV.csproj", "{A1B2C3D4-E5F6-7890-ABCD-333333333333}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

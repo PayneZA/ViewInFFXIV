@@ -1,4 +1,4 @@
-namespace InView.Host;
+namespace ViewInFFXIV.Host;
 
 internal static class CaptureFit
 {

@@ -1,11 +1,11 @@
-namespace InView.Host;
+namespace ViewInFFXIV.Host;
 
 internal static class Program
 {
     [STAThread]
     private static void Main(string[] args)
     {
-        using var mutex = new Mutex(true, InView.Shared.IpcConstants.MutexName, out var created);
+        using var mutex = new Mutex(true, ViewInFFXIV.Shared.IpcConstants.MutexName, out var created);
         if (!created)
         {
             return;

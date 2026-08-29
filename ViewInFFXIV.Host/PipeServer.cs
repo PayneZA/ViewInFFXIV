@@ -1,9 +1,9 @@
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
-using InView.Shared;
+using ViewInFFXIV.Shared;
 
-namespace InView.Host;
+namespace ViewInFFXIV.Host;
 
 internal sealed class PipeServer : IDisposable
 {

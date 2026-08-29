@@ -4,6 +4,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <RootNamespace>InView.Shared</RootNamespace>
+    <RootNamespace>ViewInFFXIV.Shared</RootNamespace>
   </PropertyGroup>
 </Project>

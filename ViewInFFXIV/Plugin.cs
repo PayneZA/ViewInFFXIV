@@ -3,16 +3,17 @@ using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
-using InView.Host;
-using InView.Shared;
-using InView.Windows;
-using InView.World;
+using ViewInFFXIV.Host;
+using ViewInFFXIV.Shared;
+using ViewInFFXIV.Windows;
+using ViewInFFXIV.World;
 
-namespace InView;
+namespace ViewInFFXIV;
 
 public sealed class Plugin : IDalamudPlugin
 {
-    private const string CommandName = "/inview";
+    private const string CommandName = "/viewin";
+    private const string ChatPrefix = "ViewInFFXIV";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -26,7 +27,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public Configuration Configuration { get; }
 
-    public readonly WindowSystem WindowSystem = new("InView");
+    public readonly WindowSystem WindowSystem = new("ViewInFFXIV");
 
     public HostClient Host { get; }
 
@@ -49,7 +50,8 @@ public sealed class Plugin : IDalamudPlugin
         Host = new HostClient(
             Log,
             TextureProvider,
-            PluginInterface.AssemblyLocation.DirectoryName ?? AppContext.BaseDirectory);
+            PluginInterface.AssemblyLocation.DirectoryName ?? AppContext.BaseDirectory,
+            Configuration.AutoStartHost);
 
         Renderer = new ScreenRenderer(Configuration, ClientState, GameGui);
         Renderer.Initialize(PluginInterface, Log);
@@ -59,7 +61,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open InView. /inview place  /inview host  /inview hide  /inview apply <code>",
+            HelpMessage = "Open ViewInFFXIV. /viewin start|stop  /viewin place  /viewin host  /viewin hide  /viewin apply <code>",
         });
 
         PluginInterface.UiBuilder.Draw += Draw;
@@ -67,8 +69,10 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
         Framework.Update += OnFramework;
 
-        PushHostState();
-        Log.Information("InView loaded. Use {Command} to open the remote.", CommandName);
+        if (Configuration.AutoStartHost)
+            PushHostState();
+
+        Log.Information("ViewInFFXIV loaded. Use {Command} to open the remote.", CommandName);
     }
 
     public void Dispose()
@@ -129,17 +133,17 @@ public sealed class Plugin : IDalamudPlugin
     {
         if (!ScreenShareCode.TryImport(raw, Configuration, out var error))
         {
-            ChatGui.PrintError($"InView: {error}");
+            ChatGui.PrintError($"{ChatPrefix}: {error}");
             return;
         }
 
         Configuration.Save();
-        ChatGui.Print("InView screen applied from share code.", "InView");
+        ChatGui.Print("ViewInFFXIV screen applied from share code.", ChatPrefix);
         if (ClientState.TerritoryType != Configuration.ScreenTerritory)
         {
             ChatGui.Print(
                 "You are in a different zone than this code. Housing interiors differ by ward — re-place if it looks wrong.",
-                "InView");
+                ChatPrefix);
         }
     }
 
@@ -159,6 +163,9 @@ public sealed class Plugin : IDalamudPlugin
 
     private void BindCaptureSource()
     {
+        if (!Host.HelperAlive)
+            return;
+
         if (Configuration.CaptureSource != "window")
         {
             if (lastSentSource != "webview")
@@ -199,17 +206,33 @@ public sealed class Plugin : IDalamudPlugin
     private void OnCommand(string command, string args)
     {
         var trimmed = args.Trim();
+        if (trimmed.Equals("start", StringComparison.OrdinalIgnoreCase))
+        {
+            Host.StartHost();
+            ChatGui.Print("ViewInFFXIV helper started.", ChatPrefix);
+            return;
+        }
+
+        if (trimmed.Equals("stop", StringComparison.OrdinalIgnoreCase))
+        {
+            Host.StopHost();
+            ChatGui.Print("ViewInFFXIV helper stopped.", ChatPrefix);
+            return;
+        }
+
         if (trimmed.Equals("place", StringComparison.OrdinalIgnoreCase))
         {
             Placement.PlaceInFront(ClientState, ObjectTable, Configuration);
-            ChatGui.Print("InView screen placed in front of you.", "InView");
+            ChatGui.Print("ViewInFFXIV screen placed in front of you.", ChatPrefix);
             return;
         }
 
         if (trimmed.Equals("host", StringComparison.OrdinalIgnoreCase))
         {
+            if (!Host.HelperAlive)
+                Host.StartHost();
             Host.ShowHostWindow();
-            ChatGui.Print("InView host window shown (login / screen share).", "InView");
+            ChatGui.Print("ViewInFFXIV host window shown (login / screen share).", ChatPrefix);
             return;
         }
 
@@ -224,7 +247,7 @@ public sealed class Plugin : IDalamudPlugin
             var code = trimmed.Length > 5 ? trimmed[5..].Trim() : "";
             if (string.IsNullOrEmpty(code))
             {
-                ChatGui.Print("Usage: /inview apply IV1.…", "InView");
+                ChatGui.Print("Usage: /viewin apply VIF1.…", ChatPrefix);
                 return;
             }
 
