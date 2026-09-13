@@ -14,19 +14,6 @@
         "resolved": "1.2.39",
         "contentHash": "fcFN01tDTIQqDuTwr1jUQK/geofiwjG5DycJQOnC72i1SsLAk1ELe+apBOuZ11UMQG8YKFZG1FgvjZPbqHyatg=="
       },
-      "Pictomancy": {
-        "type": "Direct",
-        "requested": "[1.0.10, )",
-        "resolved": "1.0.10",
-        "contentHash": "xHRbKtdyT15T58oZH4QSHdsnjlRMc3Vi4DbrnnIWeeZfDX3yyBu0CiVYUR37ALIGcOd1sl0bpX/9GpLl+PEMTg==",
-        "dependencies": {
-          "KamiToolKit": "1.1.2",
-          "SharpDX.D3DCompiler": "4.2.0",
-          "SharpDX.Direct2D1": "4.2.0",
-          "SharpDX.Direct3D11": "4.2.0",
-          "SharpDX.Mathematics": "4.2.0"
-        }
-      },
       "KamiToolKit": {
         "type": "Transitive",
         "resolved": "1.1.2",
@@ -107,6 +94,16 @@
         "type": "Transitive",
         "resolved": "3.1.12",
         "contentHash": "iAg6zifihXEFS/t7fiHhZBGAdCp3FavsF4i2ZIDp0JfeYeDVzvmlbY1CNhhIKimaIzrzSi5M/NBFcWvZT2rB/A=="
+      },
+      "pictomancy": {
+        "type": "Project",
+        "dependencies": {
+          "KamiToolKit": "[1.1.2, )",
+          "SharpDX.D3DCompiler": "[4.2.0, )",
+          "SharpDX.Direct2D1": "[4.2.0, )",
+          "SharpDX.Direct3D11": "[4.2.0, )",
+          "SharpDX.Mathematics": "[4.2.0, )"
+        }
       },
       "viewinffxiv.shared": {
         "type": "Project"

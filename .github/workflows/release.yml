@@ -17,6 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout Pictomancy
+        uses: actions/checkout@v4
+        with:
+          repository: PayneZA/ffxiv_pictomancy
+          ref: fix/7.56-dx-vfx
+          path: external/ffxiv_pictomancy
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -45,7 +52,9 @@ jobs:
 
       - name: Restore
         shell: pwsh
-        run: dotnet restore ViewInFFXIV.sln
+        run: |
+          dotnet restore ViewInFFXIV/ViewInFFXIV.csproj `
+            -p:PictomancyCsproj="${{ github.workspace }}\external\ffxiv_pictomancy\Pictomancy\Pictomancy.csproj"
 
       - name: Build Release
         shell: pwsh
@@ -53,10 +62,34 @@ jobs:
           dotnet build ViewInFFXIV/ViewInFFXIV.csproj `
             -c Release `
             -p:Platform=x64 `
+            -p:PictomancyCsproj="${{ github.workspace }}\external\ffxiv_pictomancy\Pictomancy\Pictomancy.csproj" `
             -p:Version=${{ steps.version.outputs.version }} `
             -p:AssemblyVersion=${{ steps.version.outputs.version }} `
             -p:FileVersion=${{ steps.version.outputs.version }} `
             --nologo
+
+      - name: Verify latest.zip contains helper
+        shell: pwsh
+        run: |
+          $zip = "ViewInFFXIV/bin/x64/Release/ViewInFFXIV/latest.zip"
+          if (-not (Test-Path $zip)) { throw "Missing $zip" }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip))
+          $names = $archive.Entries | ForEach-Object { $_.FullName -replace '\\','/' }
+          $archive.Dispose()
+          $required = @(
+            'ViewInFFXIV.dll',
+            'Pictomancy.dll',
+            'Host/ViewInFFXIV.Host.exe',
+            'Host/ViewInFFXIV.Host.dll',
+            'Host/ViewInFFXIV.Host.runtimeconfig.json'
+          )
+          foreach ($name in $required) {
+            if ($names -notcontains $name) {
+              throw "latest.zip missing $name. Entries: $($names -join ', ')"
+            }
+          }
+          Write-Host "latest.zip ok ($($names.Count) files)"
 
       - name: Update repo.json
         shell: pwsh

@@ -1,6 +1,6 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.0.0</Version>
+    <Version>1.1.1.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -14,36 +14,48 @@
     <Tags>utility;housing;video;watchtogether</Tags>
     <RepoUrl>https://github.com/PayneZA/ViewInFFXIV</RepoUrl>
     <MakeZip>true</MakeZip>
-    <Exclude>InView*;Host\InView*;*.pdb;Host\*.pdb</Exclude>
+    <PictomancyCsproj Condition="'$(PictomancyCsproj)' == ''">$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)..\..\ffxiv_pictomancy\Pictomancy\Pictomancy.csproj'))</PictomancyCsproj>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ViewInFFXIV.Shared\ViewInFFXIV.Shared.csproj" />
-    <PackageReference Include="Pictomancy" Version="1.0.10" />
+    <ProjectReference Include="..\ViewInFFXIV.Host\ViewInFFXIV.Host.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <SkipGetTargetFrameworkProperties>true</SkipGetTargetFrameworkProperties>
+      <Private>false</Private>
+    </ProjectReference>
+    <ProjectReference Include="$(PictomancyCsproj)" />
   </ItemGroup>
-  <Target Name="BuildHost" BeforeTargets="BeforeBuild">
-    <MSBuild Projects="..\ViewInFFXIV.Host\ViewInFFXIV.Host.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=Any CPU" />
-  </Target>
-  <Target Name="CleanStaleArtifacts" BeforeTargets="DefaultDalamudPackagerRelease" DependsOnTargets="CopyHost" Condition="'$(Configuration)' == 'Release'">
-    <ItemGroup>
-      <StaleInView Include="$(OutputPath)InView*;$(OutputPath)Host\InView*" />
-    </ItemGroup>
-    <Delete Files="@(StaleInView)" ContinueOnError="true" />
-  </Target>
-  <Target Name="CopyHost" AfterTargets="Build">
+  <Target Name="CopyHost">
+    <MSBuild Projects="..\ViewInFFXIV.Host\ViewInFFXIV.Host.csproj"
+             Targets="GetTargetPath"
+             Properties="Configuration=$(Configuration);Platform=$(Platform)">
+      <Output TaskParameter="TargetOutputs" ItemName="_HostTarget" />
+    </MSBuild>
     <PropertyGroup>
-      <_HostOutAnyCpu>..\ViewInFFXIV.Host\bin\Any CPU\$(Configuration)\net10.0-windows10.0.19041.0\</_HostOutAnyCpu>
-      <_HostOutFlat>..\ViewInFFXIV.Host\bin\$(Configuration)\net10.0-windows10.0.19041.0\</_HostOutFlat>
-      <HostOut Condition="Exists('$(_HostOutAnyCpu)')">$(_HostOutAnyCpu)</HostOut>
-      <HostOut Condition="!Exists('$(_HostOutAnyCpu)')">$(_HostOutFlat)</HostOut>
+      <HostTargetPath>@(_HostTarget)</HostTargetPath>
+      <HostOut>$([System.IO.Path]::GetDirectoryName($(HostTargetPath)))</HostOut>
     </PropertyGroup>
+    <Error Condition="'$(HostOut)' == '' or !Exists('$(HostOut)\ViewInFFXIV.Host.exe')"
+           Text="ViewInFFXIV.Host.exe was not built. Expected it next to $(HostTargetPath)." />
     <ItemGroup>
-      <StaleWebView Include="$(OutputPath)Host\Microsoft.Web.WebView2*;$(OutputPath)Host\WebView2Loader.dll" />
-      <HostFiles Include="$(HostOut)**\*.*"
-                 Exclude="$(HostOut)**\*.pdb;$(HostOut)**\Microsoft.Web.WebView2*;$(HostOut)**\WebView2Loader.dll;$(HostOut)**\runtimes\**\*.*" />
+      <_StaleHost Include="$(OutputPath)Host\Microsoft.Web.WebView2*;$(OutputPath)Host\WebView2Loader.dll" />
+      <_StaleHost Include="$(OutputPath)Host\*.pdb;$(OutputPath)*.pdb" Condition="'$(Configuration)' == 'Release'" />
+      <HostFiles Include="$(HostOut)\**\*.*"
+                 Exclude="$(HostOut)\**\*.pdb;$(HostOut)\**\Microsoft.Web.WebView2*;$(HostOut)\**\WebView2Loader.dll;$(HostOut)\**\runtimes\**\*.*" />
     </ItemGroup>
-    <Delete Files="@(StaleWebView)" ContinueOnError="true" />
+    <Delete Files="@(_StaleHost)" ContinueOnError="true" />
+    <ItemGroup>
+      <_PdbToStrip Include="$(OutputPath)**\*.pdb" Condition="'$(Configuration)' == 'Release'" />
+    </ItemGroup>
+    <Delete Files="@(_PdbToStrip)" ContinueOnError="true" />
     <RemoveDir Directories="$(OutputPath)Host\runtimes" ContinueOnError="true" />
     <Copy SourceFiles="@(HostFiles)" DestinationFolder="$(OutputPath)Host\%(RecursiveDir)" SkipUnchangedFiles="true" />
+    <Error Condition="!Exists('$(OutputPath)Host\ViewInFFXIV.Host.exe')"
+           Text="Failed to copy ViewInFFXIV.Host.exe into $(OutputPath)Host\." />
+    <Error Condition="!Exists('$(OutputPath)Host\ViewInFFXIV.Host.runtimeconfig.json')"
+           Text="Failed to copy ViewInFFXIV.Host.runtimeconfig.json; the helper will not start." />
+    <Error Condition="!Exists('$(OutputPath)Pictomancy.dll')"
+           Text="Pictomancy.dll is missing from $(OutputPath). Check PictomancyCsproj=$(PictomancyCsproj)." />
   </Target>
   <PropertyGroup>
     <DistDir>$(MSBuildThisFileDirectory)..\dist\</DistDir>
@@ -70,6 +82,7 @@
       Overwrite="true"
       Lines="ViewInFFXIV dev plugin pack;Extract this folder anywhere (keep ViewInFFXIV.dll and Host/ together).;In game: /xlsettings - Experimental - Dev Plugin Locations - add this folder.;Then /xlplugins - Dev Tools - enable ViewInFFXIV.;Requires Dalamud API 15 and .NET 10." />
     <Delete Files="$(ReleaseZip);$(ReleaseZipVersioned)" ContinueOnError="true" />
+    <Error Condition="!Exists('$(StageDir)Host\ViewInFFXIV.Host.exe')" Text="dist pack is missing Host\ViewInFFXIV.Host.exe." />
     <ZipDirectory SourceDirectory="$(StageDir)" DestinationFile="$(ReleaseZip)" Overwrite="true" />
     <Copy SourceFiles="$(ReleaseZip)" DestinationFiles="$(ReleaseZipVersioned)" SkipUnchangedFiles="false" />
     <Message Importance="high" Text="Created dev plugin pack: $(ReleaseZip)" />
