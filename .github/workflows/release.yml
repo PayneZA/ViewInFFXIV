@@ -69,13 +69,22 @@ jobs:
             --nologo
 
       - name: Verify latest.zip contains helper
+        id: zip
         shell: pwsh
         run: |
-          $zip = "ViewInFFXIV/bin/x64/Release/ViewInFFXIV/latest.zip"
-          if (-not (Test-Path $zip)) { throw "Missing $zip" }
+          Get-ChildItem -Recurse ViewInFFXIV/bin -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+          $zip = Get-ChildItem -Recurse -Filter latest.zip ViewInFFXIV/bin -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $zip) {
+            $dist = Get-ChildItem -Recurse -Filter release.zip dist -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+            if ($dist) { $zip = $dist }
+          }
+          if (-not $zip) { throw "No plugin zip under ViewInFFXIV/bin or dist" }
+          Write-Host "Using $zip"
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip))
-          $names = $archive.Entries | ForEach-Object { $_.FullName -replace '\\','/' }
+          $archive = [IO.Compression.ZipFile]::OpenRead($zip)
+          $names = @($archive.Entries | ForEach-Object { $_.FullName -replace '\\','/' })
           $archive.Dispose()
           $required = @(
             'ViewInFFXIV.dll',
@@ -86,9 +95,10 @@ jobs:
           )
           foreach ($name in $required) {
             if ($names -notcontains $name) {
-              throw "latest.zip missing $name. Entries: $($names -join ', ')"
+              throw "zip missing $name. Entries: $($names -join ', ')"
             }
           }
+          Copy-Item $zip latest.zip -Force
           Write-Host "latest.zip ok ($($names.Count) files)"
 
       - name: Update repo.json
@@ -109,7 +119,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          files: ViewInFFXIV/bin/x64/Release/ViewInFFXIV/latest.zip
+          files: latest.zip
           generate_release_notes: true
 
       - name: Commit repo.json
