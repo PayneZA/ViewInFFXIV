@@ -72,7 +72,6 @@ jobs:
         id: zip
         shell: pwsh
         run: |
-          Get-ChildItem -Recurse ViewInFFXIV/bin -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
           $zip = Get-ChildItem -Recurse -Filter latest.zip ViewInFFXIV/bin -ErrorAction SilentlyContinue |
             Select-Object -First 1 -ExpandProperty FullName
           if (-not $zip) {
