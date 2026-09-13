@@ -1,6 +1,6 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.1.0</Version>
+    <Version>1.1.2.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -63,12 +63,17 @@
     <ReleaseZipVersioned>$(DistDir)ViewInFFXIV-$(Version).zip</ReleaseZipVersioned>
     <StageDir>$(DistDir).stage\</StageDir>
   </PropertyGroup>
-  <Target Name="PackRelease" AfterTargets="DefaultDalamudPackagerRelease" DependsOnTargets="CopyHost" Condition="'$(Configuration)' == 'Release'">
+  <Target Name="PackRelease" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <_ManifestJson Condition="Exists('$(OutputPath)ViewInFFXIV.json')">$(OutputPath)ViewInFFXIV.json</_ManifestJson>
+      <_ManifestJson Condition="'$(_ManifestJson)' == '' and Exists('$(OutputPath)$(AssemblyName)\ViewInFFXIV.json')">$(OutputPath)$(AssemblyName)\ViewInFFXIV.json</_ManifestJson>
+    </PropertyGroup>
+    <Error Condition="'$(_ManifestJson)' == ''" Text="ViewInFFXIV.json was not produced. OutputPath=$(OutputPath)" />
     <ItemGroup>
       <StalePluginFiles Include="$(OutputPath)InView*" />
       <StaleHostFiles Include="$(OutputPath)Host\InView*" />
       <PluginPack Include="$(OutputPath)*.dll" Exclude="$(OutputPath)InView*.dll;$(OutputPath)InView.*" />
-      <PluginPack Include="$(OutputPath)ViewInFFXIV.json" />
+      <PluginPack Include="$(_ManifestJson)" />
       <HostPack Include="$(OutputPath)Host\**\*.*" Exclude="$(OutputPath)Host\**\*.pdb;$(OutputPath)Host\InView*;$(OutputPath)Host\Microsoft.Web.WebView2*;$(OutputPath)Host\WebView2Loader.dll;$(OutputPath)Host\runtimes\**\*.*" />
     </ItemGroup>
     <Delete Files="@(StalePluginFiles)" ContinueOnError="true" />
