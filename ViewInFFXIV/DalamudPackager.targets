@@ -56,5 +56,6 @@
                      Changelog="$(Changelog)"
                      AcceptsFeedback="$(AcceptsFeedback)"
                      FeedbackMessage="$(FeedbackMessage)" />
+    <CallTarget Targets="PackRelease" />
   </Target>
 </Project>
