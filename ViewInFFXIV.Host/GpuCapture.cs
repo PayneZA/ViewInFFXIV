@@ -252,7 +252,7 @@ internal sealed class GpuCapture : IDisposable
     {
         var abi = ((IWinRTObject)surface).NativeObject.ThisPtr;
         var accessGuid = DxgiInterfaceAccessGuid;
-        Marshal.ThrowExceptionForHR(Marshal.QueryInterface(abi, ref accessGuid, out var access));
+        Marshal.ThrowExceptionForHR(Marshal.QueryInterface(abi, in accessGuid, out var access));
         try
         {
             var textureGuid = Texture2DGuid;
