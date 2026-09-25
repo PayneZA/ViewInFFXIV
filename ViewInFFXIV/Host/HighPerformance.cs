@@ -1,8 +1,5 @@
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using Dalamud.Game.Chat;
-using Dalamud.Game.Text.SeStringHandling;
-using Dalamud.Game.Text.SeStringHandling.Payloads;
 using ViewInFFXIV.Shared;
 
 namespace ViewInFFXIV.Host;
@@ -10,10 +7,8 @@ namespace ViewInFFXIV.Host;
 /// <summary>
 /// The watch party: the helper runs its own off-screen Brave (ViewInFFXIV profile) and drives w2g for us.
 /// </summary>
-public sealed partial class HighPerformance : IDisposable
+public sealed partial class HighPerformance
 {
-    private const string JoinLinkText = "[Join watch party]";
-
     private const string ChatPrefix = "ViewInFFXIV";
 
     private readonly Plugin plugin;
@@ -23,47 +18,9 @@ public sealed partial class HighPerformance : IDisposable
     private bool preferencesApplied;
     private DateTime foregroundLockUntil = DateTime.MinValue;
 
-    private readonly DalamudLinkPayload joinLink;
-
     public HighPerformance(Plugin plugin)
     {
         this.plugin = plugin;
-        joinLink = Plugin.ChatGui.AddChatLinkHandler(1, OnJoinLinkClicked);
-        Plugin.ChatGui.ChatMessage += OnChatMessage;
-    }
-
-    public void Dispose()
-    {
-        Plugin.ChatGui.ChatMessage -= OnChatMessage;
-        Plugin.ChatGui.RemoveChatLinkHandler();
-    }
-
-    /// <summary>Any chat line carrying a w2g invite gets a clickable "[Join watch party]" after it.</summary>
-    private void OnChatMessage(IHandleableChatMessage message)
-    {
-        if (message.IsHandled)
-            return;
-
-        var text = message.Message.TextValue;
-        if (FindW2gLink(text) == null || text.Contains(JoinLinkText, StringComparison.Ordinal))
-            return;
-
-        var link = new SeStringBuilder()
-            .AddText(" ")
-            .Add(joinLink)
-            .AddUiForeground(JoinLinkText, 45)
-            .Add(RawPayload.LinkTerminator)
-            .Build();
-        message.Message.Payloads.AddRange(link.Payloads);
-    }
-
-    private void OnJoinLinkClicked(uint commandId, SeString message)
-    {
-        if (FindW2gLink(message.TextValue) is { } link)
-        {
-            Plugin.ChatGui.Print("Joining the watch party…", ChatPrefix);
-            Join(link);
-        }
     }
 
     /// <summary>Text the next Draw should put on the clipboard (ImGui clipboard only works inside a frame).</summary>

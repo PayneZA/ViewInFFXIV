@@ -102,7 +102,6 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.RemoveAllWindows();
         placementWindow.Dispose();
         Renderer.Dispose();
-        HighPerformance.Dispose();
         Host.Dispose();
         video?.Dispose();
         CommandManager.RemoveHandler(CommandName);

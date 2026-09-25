@@ -20,7 +20,7 @@ Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), 
 | Command | |
 |---|---|
 | `/viewin create` | Start Brave, create a w2g room, copy the invite link |
-| `/viewin join <w2g link>` | Join a room (no link: your last room). Chat lines with a w2g link also get a clickable **[Join watch party]** |
+| `/viewin join <w2g link>` | Join a room (no link: your last room) |
 | `/viewin play <link>` | Play a video in the room |
 | `/viewin pause` / `resume` / `seek 1:23` / `seek +10` | Playback — syncs to everyone in the room (YouTube) |
 | `/viewin cc [on\|off]` / `vol 0-100` | English subtitles and volume — just for you, remembered |
