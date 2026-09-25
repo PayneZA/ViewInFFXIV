@@ -2,20 +2,22 @@ namespace ViewInFFXIV.Shared;
 
 public static class IpcConstants
 {
-    public const int CaptureWidth = 1280;
-    public const int CaptureHeight = 720;
+    /// <summary>Size of the shared video texture (and of the video area the helper fits Brave to).</summary>
     public const int MaxWidth = 1920;
     public const int MaxHeight = 1080;
-    public const int CaptureIntervalMs = 33;
-    public const int MaxNativeWidth = 7680;
-    public const int MaxNativeHeight = 2160;
-    public const uint FrameMagic = 0x58464956; // 'VIFX'
 
-    public static string PipeName => $"ViewInFFXIV.Ipc.{Sanitize(Environment.UserName)}";
+    public static string PipeName => $"ViewInFFXIV.Ipc.{Instance}";
 
-    public static string FrameMapName => $"ViewInFFXIV.Frames.{Sanitize(Environment.UserName)}";
+    public static string MutexName => $"ViewInFFXIV.Host.{Instance}";
 
-    public static string MutexName => $"ViewInFFXIV.Host.{Sanitize(Environment.UserName)}";
+    /// <summary>Prefix of the named D3D11 shared texture; the helper appends its process id and a counter.</summary>
+    public static string SharedTexturePrefix => $"ViewInFFXIV.Video.{Instance}";
+
+    /// <summary>
+    /// Per-user names. VIEWINFFXIV_INSTANCE lets a developer run a second, separate helper next to the game's.
+    /// </summary>
+    private static string Instance =>
+        Sanitize(Environment.UserName) + (Environment.GetEnvironmentVariable("VIEWINFFXIV_INSTANCE") is { Length: > 0 } dev ? "." + Sanitize(dev) : "");
 
     private static string Sanitize(string value)
     {

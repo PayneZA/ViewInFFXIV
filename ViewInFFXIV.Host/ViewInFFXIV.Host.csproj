@@ -14,4 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ViewInFFXIV.Shared\ViewInFFXIV.Shared.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="SharpDX.Direct3D11" Version="4.2.0" />
+  </ItemGroup>
 </Project>

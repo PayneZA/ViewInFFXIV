@@ -1,14 +1,19 @@
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using Dalamud.Game.Chat;
+using Dalamud.Game.Text.SeStringHandling;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using ViewInFFXIV.Shared;
 
 namespace ViewInFFXIV.Host;
 
 /// <summary>
-/// /viewinff: the helper runs its own off-screen Brave (ViewInFFXIV profile) and drives w2g for us.
+/// The watch party: the helper runs its own off-screen Brave (ViewInFFXIV profile) and drives w2g for us.
 /// </summary>
-public sealed partial class HighPerformance
+public sealed partial class HighPerformance : IDisposable
 {
+    private const string JoinLinkText = "[Join watch party]";
+
     private const string ChatPrefix = "ViewInFFXIV";
 
     private readonly Plugin plugin;
@@ -18,9 +23,47 @@ public sealed partial class HighPerformance
     private bool preferencesApplied;
     private DateTime foregroundLockUntil = DateTime.MinValue;
 
+    private readonly DalamudLinkPayload joinLink;
+
     public HighPerformance(Plugin plugin)
     {
         this.plugin = plugin;
+        joinLink = Plugin.ChatGui.AddChatLinkHandler(1, OnJoinLinkClicked);
+        Plugin.ChatGui.ChatMessage += OnChatMessage;
+    }
+
+    public void Dispose()
+    {
+        Plugin.ChatGui.ChatMessage -= OnChatMessage;
+        Plugin.ChatGui.RemoveChatLinkHandler();
+    }
+
+    /// <summary>Any chat line carrying a w2g invite gets a clickable "[Join watch party]" after it.</summary>
+    private void OnChatMessage(IHandleableChatMessage message)
+    {
+        if (message.IsHandled)
+            return;
+
+        var text = message.Message.TextValue;
+        if (FindW2gLink(text) == null || text.Contains(JoinLinkText, StringComparison.Ordinal))
+            return;
+
+        var link = new SeStringBuilder()
+            .AddText(" ")
+            .Add(joinLink)
+            .AddUiForeground(JoinLinkText, 45)
+            .Add(RawPayload.LinkTerminator)
+            .Build();
+        message.Message.Payloads.AddRange(link.Payloads);
+    }
+
+    private void OnJoinLinkClicked(uint commandId, SeString message)
+    {
+        if (FindW2gLink(message.TextValue) is { } link)
+        {
+            Plugin.ChatGui.Print("Joining the watch party…", ChatPrefix);
+            Join(link);
+        }
     }
 
     /// <summary>Text the next Draw should put on the clipboard (ImGui clipboard only works inside a frame).</summary>
@@ -42,7 +85,8 @@ public sealed partial class HighPerformance
         // Brave's first window would otherwise pull focus away from the game.
         LockSetForegroundWindow(LsfwLock);
         foregroundLockUntil = DateTime.UtcNow + TimeSpan.FromSeconds(25);
-        plugin.Host.Send(HostCommand.Managed(ManagedOps.Start, ProfileDirectory));
+        // The helper must capture on the game's GPU for the texture to be shareable.
+        plugin.Host.Send(HostCommand.Managed(ManagedOps.Start, ProfileDirectory, plugin.Video.AdapterLuid.ToString()));
     }
 
     public void CreateRoom()
@@ -57,7 +101,7 @@ public sealed partial class HighPerformance
         var link = FindW2gLink(text);
         if (link == null)
         {
-            Plugin.ChatGui.PrintError($"{ChatPrefix}: paste a w2g.tv invite link, e.g. /viewinff join https://w2g.tv/?r=…");
+            Plugin.ChatGui.PrintError($"{ChatPrefix}: paste a w2g.tv invite link, e.g. /viewin join https://w2g.tv/?r=…");
             return;
         }
 
@@ -71,13 +115,13 @@ public sealed partial class HighPerformance
         var url = UrlRegex().Match(text).Value;
         if (url.Length == 0)
         {
-            Plugin.ChatGui.PrintError($"{ChatPrefix}: /viewinff play <video link>");
+            Plugin.ChatGui.PrintError($"{ChatPrefix}: /viewin play <video link>");
             return;
         }
 
         if (!Active)
         {
-            Plugin.ChatGui.PrintError($"{ChatPrefix}: create or join a room first (/viewinff create).");
+            Plugin.ChatGui.PrintError($"{ChatPrefix}: create or join a room first (/viewin create).");
             return;
         }
 
@@ -114,7 +158,7 @@ public sealed partial class HighPerformance
         {
             if (!double.TryParse(part, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n))
             {
-                Plugin.ChatGui.PrintError($"{ChatPrefix}: /viewinff seek 1:23 | 83 | +10 | -10");
+                Plugin.ChatGui.PrintError($"{ChatPrefix}: /viewin seek 1:23 | 83 | +10 | -10");
                 return;
             }
 
@@ -157,9 +201,10 @@ public sealed partial class HighPerformance
 
     public void Hide() => plugin.Host.Send(HostCommand.Managed(ManagedOps.Hide));
 
+    /// <summary>Closes Brave and the helper.</summary>
     public void Stop()
     {
-        plugin.Host.Send(HostCommand.Managed(ManagedOps.Stop));
+        plugin.Host.StopHost();
         bringToFront = false;
     }
 
@@ -167,7 +212,7 @@ public sealed partial class HighPerformance
     {
         if (Status.RoomUrl.Length == 0)
         {
-            Plugin.ChatGui.PrintError($"{ChatPrefix}: no room yet (/viewinff create).");
+            Plugin.ChatGui.PrintError($"{ChatPrefix}: no room yet (/viewin create).");
             return;
         }
 
@@ -234,13 +279,16 @@ public sealed partial class HighPerformance
         }
     }
 
+    /// <summary>Finds a w2g link in text, with or without "https://" (chat often drops it).</summary>
     public static string? FindW2gLink(string text)
     {
         var match = W2gLinkRegex().Match(text);
-        return match.Success ? match.Value : null;
+        if (!match.Success)
+            return null;
+        return match.Value.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? match.Value : "https://" + match.Value;
     }
 
-    [GeneratedRegex(@"https://(?:www\.)?w2g\.tv/\S+", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(?:https?://)?(?:www\.)?w2g\.tv/\S+", RegexOptions.IgnoreCase)]
     private static partial Regex W2gLinkRegex();
 
     [GeneratedRegex(@"https?://\S+", RegexOptions.IgnoreCase)]

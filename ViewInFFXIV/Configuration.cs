@@ -52,13 +52,7 @@ public sealed class TerritoryPresets
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 4;
-
-    public bool AutoStartHost { get; set; }
-
-    public string CaptureProcess { get; set; } = "";
-
-    public string CaptureTitle { get; set; } = "";
+    public int Version { get; set; } = 5;
 
     public List<TerritoryPresets> SavedPlacements { get; set; } = [];
 

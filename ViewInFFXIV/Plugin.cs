@@ -14,8 +14,10 @@ namespace ViewInFFXIV;
 public sealed class Plugin : IDalamudPlugin
 {
     private const string CommandName = "/viewin";
-    private const string HighPerformanceCommandName = "/viewinff";
+    private const string AliasCommandName = "/viewinff";
     private const string ChatPrefix = "ViewInFFXIV";
+    private const string Usage =
+        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | invite | show | hide | place | apply <code> | stop";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -25,7 +27,6 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
-    [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
 
     public Configuration Configuration { get; }
 
@@ -39,10 +40,10 @@ public sealed class Plugin : IDalamudPlugin
 
     public HighPerformance HighPerformance { get; }
 
-    private readonly RemoteWindow remote;
-    private readonly HighPerformanceWindow highPerformanceWindow;
-    private long lastSentHwnd;
-    private bool helperWasAlive;
+    private readonly RemoteWindow placementWindow;
+    private readonly HighPerformanceWindow mainWindow;
+    private readonly object videoLock = new();
+    private SharedVideo? video;
     private uint lastTerritoryType;
 
     public Plugin()
@@ -51,39 +52,27 @@ public sealed class Plugin : IDalamudPlugin
 
         if (Configuration.Version < 3)
             PlacementPresets.MigrateFromV2(Configuration);
-        if (Configuration.Version < 4)
-            MigrateToV4(Configuration);
-        Configuration.Version = 4;
+        Configuration.Version = 5;
         Configuration.SavedPlacements ??= [];
 
         lastTerritoryType = ClientState.TerritoryType;
         if (lastTerritoryType != 0)
             PlacementPresets.LoadActivePreset(Configuration, lastTerritoryType);
 
-        Host = new HostClient(
-            Log,
-            TextureProvider,
-            PluginInterface.AssemblyLocation.DirectoryName ?? AppContext.BaseDirectory,
-            Configuration.AutoStartHost);
+        Host = new HostClient(Log, PluginInterface.AssemblyLocation.DirectoryName ?? AppContext.BaseDirectory);
 
         Renderer = new ScreenRenderer(Configuration, ClientState, GameGui);
         Renderer.Initialize(PluginInterface, Log);
 
         HighPerformance = new HighPerformance(this);
 
-        remote = new RemoteWindow(this);
-        WindowSystem.AddWindow(remote);
-        highPerformanceWindow = new HighPerformanceWindow(this);
-        WindowSystem.AddWindow(highPerformanceWindow);
+        mainWindow = new HighPerformanceWindow(this);
+        WindowSystem.AddWindow(mainWindow);
+        placementWindow = new RemoteWindow(this);
+        WindowSystem.AddWindow(placementWindow);
 
-        CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
-        {
-            HelpMessage = "Open ViewInFFXIV. /viewin start|stop  /viewin place  /viewin apply <code>",
-        });
-        CommandManager.AddHandler(HighPerformanceCommandName, new CommandInfo(OnHighPerformanceCommand)
-        {
-            HelpMessage = "High Performance mode (Brave + w2g). /viewinff create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | invite | show | hide | name | stop",
-        });
+        CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand) { HelpMessage = $"Open ViewInFFXIV. {Usage}" });
+        CommandManager.AddHandler(AliasCommandName, new CommandInfo(OnCommand) { HelpMessage = "Same as /viewin.", ShowInHelp = false });
 
         PluginInterface.UiBuilder.Draw += Draw;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleMainUi;
@@ -91,11 +80,17 @@ public sealed class Plugin : IDalamudPlugin
         Framework.Update += OnFramework;
 
         ApplyUiHidePolicy();
+        Log.Information("ViewInFFXIV loaded. Use {Command} to open it.", CommandName);
+    }
 
-        if (Configuration.AutoStartHost)
-            PushHostState();
-
-        Log.Information("ViewInFFXIV loaded. Use {Command} to open the remote.", CommandName);
+    /// <summary>The video texture shared by the helper, on the game's GPU (created on first use).</summary>
+    public SharedVideo Video
+    {
+        get
+        {
+            lock (videoLock)
+                return video ??= new SharedVideo(PluginInterface.UiBuilder.DeviceHandle, Log);
+        }
     }
 
     public void Dispose()
@@ -105,45 +100,22 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleMainUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
         WindowSystem.RemoveAllWindows();
-        remote.Dispose();
+        placementWindow.Dispose();
         Renderer.Dispose();
+        HighPerformance.Dispose();
         Host.Dispose();
+        video?.Dispose();
         CommandManager.RemoveHandler(CommandName);
-        CommandManager.RemoveHandler(HighPerformanceCommandName);
+        CommandManager.RemoveHandler(AliasCommandName);
     }
 
-    public void ToggleMainUi() => remote.Toggle();
+    public void ToggleMainUi() => mainWindow.Toggle();
+
+    public void TogglePlacementUi() => placementWindow.Toggle();
 
     internal void ApplyUiHidePolicy()
     {
         PluginInterface.UiBuilder.DisableAutomaticUiHide = Configuration.KeepScreenWhenUiHidden;
-    }
-
-    public void PushHostState()
-    {
-        lastSentHwnd = 0;
-        Host.Send(HostCommand.ListWindows());
-        BindCaptureSource();
-    }
-
-    public void SetCaptureWindow(BrowserWindowInfo? window)
-    {
-        if (window == null || window.Hwnd == 0)
-        {
-            Configuration.CaptureProcess = "";
-            Configuration.CaptureTitle = "";
-            Host.Send(HostCommand.ClearWindow());
-            lastSentHwnd = 0;
-        }
-        else
-        {
-            Configuration.CaptureProcess = window.Process;
-            Configuration.CaptureTitle = window.Title;
-            Host.Send(HostCommand.SetWindow(window.Hwnd));
-            lastSentHwnd = window.Hwnd;
-        }
-
-        Configuration.Save();
     }
 
     public void ApplyShareCode(string raw)
@@ -166,12 +138,6 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
-    private static void MigrateToV4(Configuration config)
-    {
-        config.CaptureProcess = "";
-        config.CaptureTitle = "";
-    }
-
     private void OnFramework(IFramework framework)
     {
         var territory = ClientState.TerritoryType;
@@ -183,42 +149,7 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         Host.Tick();
-        if (Host.HelperAlive && !helperWasAlive)
-        {
-            lastSentHwnd = 0;
-            PushHostState();
-        }
-
-        helperWasAlive = Host.HelperAlive;
         HighPerformance.Tick();
-        BindCaptureSource();
-    }
-
-    private void BindCaptureSource()
-    {
-        // High Performance mode captures its own Brave window; do not switch back to the saved window.
-        if (!Host.HelperAlive || HighPerformance.Active)
-            return;
-
-        if (string.IsNullOrWhiteSpace(Configuration.CaptureProcess))
-            return;
-
-        var windows = Host.Status.Windows ?? [];
-        if (windows.Count == 0)
-            return;
-
-        var match = windows.Find(w =>
-            w.Process.Equals(Configuration.CaptureProcess, StringComparison.OrdinalIgnoreCase)
-            && w.Title == Configuration.CaptureTitle);
-        match ??= windows.Find(w =>
-            w.Process.Equals(Configuration.CaptureProcess, StringComparison.OrdinalIgnoreCase));
-        if (match == null || match.Hwnd == 0)
-            return;
-        if (lastSentHwnd == match.Hwnd)
-            return;
-
-        Host.Send(HostCommand.SetWindow(match.Hwnd));
-        lastSentHwnd = match.Hwnd;
     }
 
     private void Draw()
@@ -229,10 +160,15 @@ public sealed class Plugin : IDalamudPlugin
             HighPerformance.PendingClipboard = null;
         }
 
+        // Pull the newest frame from the helper on the GPU (render thread, game's device context).
+        var texture = Host.HelperAlive ? Host.Status.SharedTexture : "";
+        if (texture.Length > 0 || video != null)
+            Video.Update(texture);
+
         if (!ShouldHidePluginWindows())
             WindowSystem.Draw();
 
-        Renderer.Draw(Host.Texture);
+        Renderer.Draw(video?.Handle);
     }
 
     private bool ShouldHidePluginWindows()
@@ -245,7 +181,7 @@ public sealed class Plugin : IDalamudPlugin
             || PluginInterface.UiBuilder.CutsceneActive;
     }
 
-    private void OnHighPerformanceCommand(string command, string args)
+    private void OnCommand(string command, string args)
     {
         var trimmed = args.Trim();
         var space = trimmed.IndexOf(' ');
@@ -254,7 +190,7 @@ public sealed class Plugin : IDalamudPlugin
         switch (verb)
         {
             case "":
-                highPerformanceWindow.Toggle();
+                ToggleMainUi();
                 break;
             case "start":
                 HighPerformance.Start();
@@ -282,7 +218,7 @@ public sealed class Plugin : IDalamudPlugin
                 if (int.TryParse(rest, out var volume))
                     HighPerformance.Volume(volume);
                 else
-                    ChatGui.PrintError($"{ChatPrefix}: /viewinff vol 0-100");
+                    ChatGui.PrintError($"{ChatPrefix}: /viewin vol 0-100");
                 break;
             case "invite":
                 HighPerformance.CopyInvite();
@@ -296,53 +232,23 @@ public sealed class Plugin : IDalamudPlugin
             case "name":
                 HighPerformance.SendName();
                 break;
+            case "place":
+                Placement.PlaceInFront(ClientState, ObjectTable, Configuration);
+                ChatGui.Print("ViewInFFXIV screen placed in front of you.", ChatPrefix);
+                break;
+            case "apply":
+                if (rest.Length == 0)
+                    ChatGui.Print("Usage: /viewin apply VIF1.…", ChatPrefix);
+                else
+                    ApplyShareCode(rest);
+                break;
             case "stop":
                 HighPerformance.Stop();
-                ChatGui.Print("High Performance Brave closed.", ChatPrefix);
+                ChatGui.Print("ViewInFFXIV closed its Brave.", ChatPrefix);
                 break;
             default:
-                ChatGui.Print("/viewinff create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | invite | show | hide | name | stop", ChatPrefix);
+                ChatGui.Print(Usage, ChatPrefix);
                 break;
         }
-    }
-
-    private void OnCommand(string command, string args)
-    {
-        var trimmed = args.Trim();
-        if (trimmed.Equals("start", StringComparison.OrdinalIgnoreCase))
-        {
-            Host.StartHost();
-            ChatGui.Print("ViewInFFXIV helper started.", ChatPrefix);
-            return;
-        }
-
-        if (trimmed.Equals("stop", StringComparison.OrdinalIgnoreCase))
-        {
-            Host.StopHost();
-            ChatGui.Print("ViewInFFXIV helper stopped.", ChatPrefix);
-            return;
-        }
-
-        if (trimmed.Equals("place", StringComparison.OrdinalIgnoreCase))
-        {
-            Placement.PlaceInFront(ClientState, ObjectTable, Configuration);
-            ChatGui.Print("ViewInFFXIV screen placed in front of you.", ChatPrefix);
-            return;
-        }
-
-        if (trimmed.StartsWith("apply", StringComparison.OrdinalIgnoreCase))
-        {
-            var code = trimmed.Length > 5 ? trimmed[5..].Trim() : "";
-            if (string.IsNullOrEmpty(code))
-            {
-                ChatGui.Print("Usage: /viewin apply VIF1.…", ChatPrefix);
-                return;
-            }
-
-            ApplyShareCode(code);
-            return;
-        }
-
-        ToggleMainUi();
     }
 }

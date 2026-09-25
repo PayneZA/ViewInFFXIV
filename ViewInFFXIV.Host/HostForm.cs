@@ -1,21 +1,24 @@
+using System.Diagnostics;
 using ViewInFFXIV.Shared;
 
 namespace ViewInFFXIV.Host;
 
+/// <summary>
+/// Hidden helper window: owns the ViewInFFXIV Brave, captures it on the GPU and answers the plugin's pipe.
+/// </summary>
 internal sealed class HostForm : Form
 {
-    private readonly FrameBuffer frames;
-    private readonly CaptureEngine capture;
     private readonly PipeServer pipe;
-    private readonly System.Windows.Forms.Timer captureTimer = new();
     private readonly ManagedBrowser managed = new();
     private readonly YouTubeControl youtube = new();
     private readonly SemaphoreSlim managedLock = new(1, 1);
-    private readonly System.Threading.Timer cropTimer;
+    private readonly System.Windows.Forms.Timer guardTimer = new();
+    private readonly System.Threading.Timer pageTimer;
+    private readonly int parentPid;
+    private GpuCapture? capture;
+    private long adapterLuid;
     private string? lastError;
     private bool closing;
-    private IntPtr captureHwnd;
-    private string capturedTitle = "";
     private string? profileDir;
     private volatile string managedState = "off";
     private volatile string managedActivity = "";
@@ -24,12 +27,11 @@ internal sealed class HostForm : Form
 
     public HostForm(string[] args)
     {
-        _ = args;
+        // The plugin passes the game's process id; the helper (and its Brave) go away with the game.
+        parentPid = args.Length >= 2 && args[0] == "--parent" && int.TryParse(args[1], out var pid) ? pid : 0;
 
-        frames = FrameBuffer.Create();
-        capture = new CaptureEngine(frames);
         pipe = new PipeServer(this);
-        cropTimer = new System.Threading.Timer(_ =>
+        pageTimer = new System.Threading.Timer(_ =>
         {
             _ = managed.RefreshCropAsync();
             _ = youtube.RefreshAsync(managed.IsRunning ? managed.Port : 0);
@@ -42,8 +44,8 @@ internal sealed class HostForm : Form
         ShowInTaskbar = false;
         Location = new Point(-32000, -32000);
 
-        captureTimer.Interval = IpcConstants.CaptureIntervalMs;
-        captureTimer.Tick += (_, _) => CaptureTick();
+        guardTimer.Interval = 100;
+        guardTimer.Tick += (_, _) => GuardTick();
 
         Load += (_, _) => Start();
         FormClosing += (_, e) =>
@@ -58,12 +60,37 @@ internal sealed class HostForm : Form
         try
         {
             pipe.Start();
-            captureTimer.Start();
+            guardTimer.Start();
+            WatchParent();
         }
         catch (Exception ex)
         {
             lastError = ex.Message;
         }
+    }
+
+    private void WatchParent()
+    {
+        if (parentPid == 0)
+            return;
+
+        try
+        {
+            var parent = Process.GetProcessById(parentPid);
+            parent.EnableRaisingEvents = true;
+            parent.Exited += (_, _) => BeginInvoke(Quit);
+        }
+        catch (ArgumentException)
+        {
+            // the game is already gone
+            Quit();
+        }
+    }
+
+    private void Quit()
+    {
+        closing = true;
+        Close();
     }
 
     public void ApplyCommand(HostCommand command)
@@ -74,46 +101,32 @@ internal sealed class HostForm : Form
             return;
         }
 
-        switch (command.Op)
-        {
-            case "source":
-                captureHwnd = command.Hwnd is > 0 ? new IntPtr(command.Hwnd.Value) : IntPtr.Zero;
-                capturedTitle = captureHwnd != IntPtr.Zero ? BrowserWindows.GetTitle(captureHwnd) : "";
-                lastError = null;
-                break;
-            case "listWindows":
-                break;
-            case "quit":
-                closing = true;
-                Close();
-                break;
-        }
+        if (command.Op == "quit")
+            Quit();
     }
 
     public HostStatus BuildStatus()
     {
-        var header = frames.ReadHeader();
         var state = managedState;
         var error = managedError;
         if (state is "ready" or "busy" && !managed.IsRunning)
         {
             state = "error";
-            error = "Brave was closed. Use /viewinff start.";
+            error = "Brave was closed. Use /viewin start.";
         }
 
+        var gpu = capture;
+        var capturing = gpu != null && gpu.Window != IntPtr.Zero;
         return new HostStatus
         {
             Alive = true,
-            Width = header.Width,
-            Height = header.Height,
-            Fps = header.Fps,
-            Generation = header.Generation,
-            Capture = capture.Mode,
-            Source = captureHwnd != IntPtr.Zero ? "window" : "none",
-            Error = lastError ?? capture.LastError,
-            SharedHandle = capture.SharedHandle,
-            CapturedTitle = capturedTitle,
-            Windows = BrowserWindows.Enumerate(),
+            Width = capturing ? IpcConstants.MaxWidth : 0,
+            Height = capturing ? IpcConstants.MaxHeight : 0,
+            Fps = capturing ? gpu!.Fps : 0,
+            Generation = gpu?.Frames ?? 0,
+            Capture = gpu == null ? "" : $"{gpu.AdapterName} (in {gpu.Arrived}, skipped {gpu.Skipped})",
+            SharedTexture = capturing ? gpu!.SharedName : "",
+            Error = lastError ?? gpu?.LastError,
             Managed = new ManagedBrowserStatus
             {
                 State = state,
@@ -186,37 +199,27 @@ internal sealed class HostForm : Form
         {
             case ManagedOps.Start:
                 profileDir = string.IsNullOrWhiteSpace(command.Arg) ? profileDir : command.Arg;
-                if (managed.IsRunning)
-                    return;
-                if (profileDir == null)
-                    throw new InvalidOperationException("No browser profile folder was given.");
-
-                managedState = "starting";
-                managedActivity = "Starting Brave";
-                await managed.StartAsync(profileDir, a => managedActivity = a, ct).ConfigureAwait(false);
-                var hwnd = managed.Hwnd;
-                BeginInvoke(() =>
+                if (long.TryParse(command.Arg2, out var luid))
+                    adapterLuid = luid;
+                if (!managed.IsRunning)
                 {
-                    captureHwnd = hwnd;
-                    capturedTitle = "Brave (High Performance)";
-                    lastError = null;
-                });
+                    if (profileDir == null)
+                        throw new InvalidOperationException("No browser profile folder was given.");
+
+                    managedState = "starting";
+                    managedActivity = "Starting Brave";
+                    await managed.StartAsync(profileDir, a => managedActivity = a, ct).ConfigureAwait(false);
+                }
+
+                Invoke(StartCapture);
                 return;
 
             case ManagedOps.Stop:
-                var old = managed.Hwnd;
                 youtube.Reset();
+                Invoke(() => capture?.Stop());
                 managed.Stop();
                 managedState = "off";
                 roomUrl = "";
-                BeginInvoke(() =>
-                {
-                    if (captureHwnd == old)
-                    {
-                        captureHwnd = IntPtr.Zero;
-                        capturedTitle = "";
-                    }
-                });
                 return;
 
             case ManagedOps.Create:
@@ -241,52 +244,57 @@ internal sealed class HostForm : Form
         }
     }
 
+    /// <summary>Starts (or retargets) the GPU capture on the managed Brave window. UI thread.</summary>
+    private void StartCapture()
+    {
+        if (!managed.IsRunning)
+            return;
+
+        try
+        {
+            capture ??= new GpuCapture(adapterLuid);
+            if (capture.Window != managed.Hwnd)
+                capture.Start(managed.Hwnd);
+            lastError = null;
+        }
+        catch (Exception ex)
+        {
+            lastError = $"GPU capture failed: {ex.Message}";
+        }
+    }
+
     private void RequireRunning(string activity)
     {
         if (!managed.IsRunning)
-            throw new InvalidOperationException("Brave is not running. Use /viewinff start.");
+            throw new InvalidOperationException("Brave is not running. Use /viewin start.");
         managedState = "busy";
         managedActivity = activity;
     }
 
-    private void CaptureTick()
+    private void GuardTick()
     {
-        // Keep the High Performance window off-screen and un-minimised so it never stops rendering.
+        // Keep Brave off-screen and un-minimised so it never stops rendering.
         managed.Guard();
 
-        if (!IsHandleCreated || capture.IsBusy || captureHwnd == IntPtr.Zero)
-            return;
-
-        if (!BrowserWindows.IsAlive(captureHwnd))
+        if (capture is { } gpu)
         {
-            lastError = "Capture window closed";
-            capturedTitle = "";
-            captureHwnd = IntPtr.Zero;
-            return;
+            gpu.Crop = managed.Crop;
+            if (gpu.Window != IntPtr.Zero && !managed.IsRunning)
+                gpu.Stop();
         }
-
-        // Minimised windows have nothing to capture; keep the binding and resume when restored.
-        if (!BrowserWindows.TryGetBounds(captureHwnd, out var width, out var height))
-            return;
-
-        var managedCapture = captureHwnd == managed.Hwnd;
-        if (!managedCapture)
-            capturedTitle = BrowserWindows.GetTitle(captureHwnd);
-        capture.TryTick(captureHwnd, width, height, managedCapture ? managed.Crop : null);
     }
 
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
-            captureTimer.Stop();
-            captureTimer.Dispose();
-            cropTimer.Dispose();
+            guardTimer.Stop();
+            guardTimer.Dispose();
+            pageTimer.Dispose();
             youtube.Dispose();
+            capture?.Dispose();
             managed.Dispose();
             pipe.Dispose();
-            capture.Dispose();
-            frames.Dispose();
         }
 
         base.Dispose(disposing);

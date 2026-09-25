@@ -27,6 +27,8 @@ internal sealed class ManagedBrowser : IDisposable
         "--disable-backgrounding-occluded-windows",
         "--disable-renderer-backgrounding",
         "--disable-background-timer-throttling",
+        "--disable-gpu-vsync",
+        "--disable-frame-rate-limit",
     ];
 
     // Largest visible player-sized iframe/video; runs in the page and again inside the player's own frame.
@@ -265,7 +267,9 @@ internal sealed class ManagedBrowser : IDisposable
             var shown = Shown;
             var theater = await page.EvalAsync(W2g.TheaterScript(!shown), cts.Token).ConfigureAwait(false) is { ValueKind: JsonValueKind.True };
             var value = await page.EvalAsync(LargestMediaScript, cts.Token).ConfigureAwait(false);
-            if (value is not { ValueKind: JsonValueKind.Object } v || !GetWindowRect(Hwnd, out var rect))
+            // Windows.Graphics.Capture frames cover the visible frame (DWM bounds), which can be smaller than
+            // GetWindowRect by invisible resize borders, so measure against those.
+            if (value is not { ValueKind: JsonValueKind.Object } v || !GetWindowRect(Hwnd, out var rect) || !GetFrameBounds(Hwnd, out var frame))
                 return;
 
             var x = v.GetProperty("x").GetDouble();
@@ -289,7 +293,7 @@ internal sealed class ManagedBrowser : IDisposable
                 }
             }
 
-            float W = rect.Right - rect.Left, H = rect.Bottom - rect.Top;
+            float W = frame.Right - frame.Left, H = frame.Bottom - frame.Top;
             var dpr = (float)v.GetProperty("dpr").GetDouble();
             var viewW = (float)v.GetProperty("iw").GetDouble() * dpr;
             var viewH = (float)v.GetProperty("ih").GetDouble() * dpr;
@@ -308,8 +312,8 @@ internal sealed class ManagedBrowser : IDisposable
             // the capture size: YouTube then picks 1080p and the capture copies it 1:1 without scaling.
             if (theater && !shown && (MathF.Abs(width - IpcConstants.MaxWidth) > 2 || MathF.Abs(height - IpcConstants.MaxHeight) > 2))
             {
-                parkedWidth = Math.Clamp((int)MathF.Round(W + (IpcConstants.MaxWidth - width)), 640, 4096);
-                parkedHeight = Math.Clamp((int)MathF.Round(H + (IpcConstants.MaxHeight - height)), 360, 4096);
+                parkedWidth = Math.Clamp((int)MathF.Round((rect.Right - rect.Left) + (IpcConstants.MaxWidth - width)), 640, 4096);
+                parkedHeight = Math.Clamp((int)MathF.Round((rect.Bottom - rect.Top) + (IpcConstants.MaxHeight - height)), 360, 4096);
                 SetWindowPos(Hwnd, IntPtr.Zero, OffscreenX(parkedWidth), 0, parkedWidth, parkedHeight, SwpNoZOrder | SwpNoActivate);
                 return; // measure again next round, after the page has re-laid out
             }
@@ -503,6 +507,14 @@ internal sealed class ManagedBrowser : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out Rect lpRect);
+
+    private static bool GetFrameBounds(IntPtr hwnd, out Rect bounds) =>
+        DwmGetWindowAttribute(hwnd, DwmwaExtendedFrameBounds, out bounds, Marshal.SizeOf<Rect>()) == 0 || GetWindowRect(hwnd, out bounds);
+
+    private const int DwmwaExtendedFrameBounds = 9;
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out Rect value, int size);
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowPlacement(IntPtr hWnd, ref WindowPlacement lpwndpl);

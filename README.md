@@ -1,144 +1,87 @@
 # ViewInFFXIV
 
-Dalamud plugin that captures a **browser or Discord window** and draws it on a 16:9 screen in FFXIV housing. Use WatchTogether, Twitch, YouTube, or Discord in your own browser (with uBlock, etc.) and put that picture on the wall.
+Dalamud plugin for watch parties inside FFXIV housing: it runs a w2g (Watch2Gether) room in its own hidden Brave
+browser and puts the video on a 16:9 screen on your wall, with the audio playing from Brave. No central server:
+everyone joins the same w2g room and sees it on their own wall.
+
+## Requirements
+
+- **Windows 10 (2004+) or Windows 11** — the video is captured with Windows.Graphics.Capture on the GPU.
+- **[Brave](https://brave.com/)** — its built-in ad blocking keeps YouTube ads out; the plugin runs a separate
+  ViewInFFXIV Brave profile, so your normal browser is untouched.
+- Dalamud / XIVLauncher. No separate .NET install: the helper runs on XIVLauncher's runtime.
+
+Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), other browsers.
+
+## In game
+
+`/viewin` opens the window. Everything is also a chat command:
+
+| Command | |
+|---|---|
+| `/viewin create` | Start Brave, create a w2g room, copy the invite link |
+| `/viewin join <w2g link>` | Join a room (no link: your last room). Chat lines with a w2g link also get a clickable **[Join watch party]** |
+| `/viewin play <link>` | Play a video in the room |
+| `/viewin pause` / `resume` / `seek 1:23` / `seek +10` | Playback — syncs to everyone in the room (YouTube) |
+| `/viewin cc [on\|off]` / `vol 0-100` | English subtitles and volume — just for you, remembered |
+| `/viewin invite` / `show` / `hide` | Copy the invite / show or hide the Brave window (e.g. to pick a video in w2g) |
+| `/viewin place` / `apply <code>` | Put the screen in front of you / apply a placement share code |
+| `/viewin stop` | Close Brave and the helper |
+
+Your w2g name is always your character name. Placement (distance, height, size, saved spots per zone, share codes)
+is under **Screen placement…**. Optional: **Keep screen when UI hidden** keeps the wall TV during Scroll Lock,
+cutscenes and GPose.
+
+## How it works
+
+```
+FFXIV (plugin) ──named pipe──▶ ViewInFFXIV.Host.exe ──DevTools──▶ Brave (off-screen, ViewInFFXIV profile) ▶ w2g
+      ▲                              │ Windows.Graphics.Capture
+      └──── D3D11 shared texture ◀───┘ (1920×1080, keyed mutex, same GPU as the game)
+```
+
+- The helper starts Brave with anti-throttling flags and parks it off-screen (minimising would stop it rendering,
+  so a minimised window is put straight back). It drives w2g through the DevTools protocol: create/join rooms,
+  your name, playback and subtitles.
+- While hidden, the w2g player is stretched over the whole page and the window is sized so the video area is
+  exactly 1920×1080; YouTube is pinned to the best quality up to 1080p.
+- Each captured frame is copied on the GPU into a texture shared with the game; the plugin copies it into its own
+  texture and the overlay library draws it on the wall, occluded by walls. No pixels go through the CPU.
 
 ## Solution layout
 
 | Project | Role |
 |---------|------|
-| **[ViewInFFXIV](ViewInFFXIV/)** | Dalamud plugin (`ViewInFFXIV.dll`). Runs inside `ffxiv_dx11.exe`, draws the video on a housing wall, talks to the helper over named pipes + shared memory. |
-| **[ViewInFFXIV.Host](ViewInFFXIV.Host/)** | Out-of-process capture helper (`ViewInFFXIV.Host.exe`). WinForms daemon; captures a chosen window with `PrintWindow`, writes BGRA frames to a memory-mapped file. Never loaded into the game. |
-| **[ViewInFFXIV.Shared](ViewInFFXIV.Shared/)** | IPC contracts shared by the plugin and helper (pipe messages, frame buffer layout, browser catalog). |
-
-Build order: **ViewInFFXIV.Shared** → **ViewInFFXIV.Host** → **ViewInFFXIV** (the plugin project builds the host and copies it into `ViewInFFXIV/bin/.../Host/` automatically).
-
-## Prerequisites
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- [Visual Studio 2022](https://visualstudio.microsoft.com/) with **.NET desktop development** (optional; CLI works too)
-- Local **XIVLauncher / Dalamud** dev hooks (`%AppData%\XIVLauncher\addon\Hooks\dev`, or set `DALAMUD_HOME`)
-- A browser (Chrome, Brave, Edge, Firefox, etc.) or Discord desktop for the video source
+| **[ViewInFFXIV](ViewInFFXIV/)** | Dalamud plugin. Window, commands, placement, receives the shared texture and draws it. |
+| **[ViewInFFXIV.Host](ViewInFFXIV.Host/)** | Helper process (`ViewInFFXIV.Host.exe`): owns Brave, GPU capture, w2g/YouTube automation. Exits with the game. |
+| **[ViewInFFXIV.Shared](ViewInFFXIV.Shared/)** | Pipe messages shared by both. |
 
 ## Build
 
-### Visual Studio
-
-1. Open [`ViewInFFXIV.sln`](ViewInFFXIV.sln).
-2. Set configuration to **Debug \| x64** or **Release \| x64** (required for the Dalamud plugin project).
-3. Build the solution (**Build → Build Solution**).
-
-The plugin only exposes **x64** platforms. Shared and Host map to **Any CPU** under the x64 solution configuration.
-
-### Command line
+Prerequisites: .NET 10 SDK, XIVLauncher/Dalamud dev hooks (`%AppData%\XIVLauncher\addon\Hooks\dev` or
+`DALAMUD_HOME`), and the overlay library
+checked out next to this repo (`..\overlay-lib`, or pass `-p:OverlayCsproj=...`).
 
 ```powershell
-dotnet build ViewInFFXIV\ViewInFFXIV.csproj -c Debug
+dotnet build ViewInFFXIV\ViewInFFXIV.csproj -c Debug -p:Platform=x64
 ```
 
-Release (also creates a dev-plugin zip — see below):
+The plugin build also builds the helper and copies it into `bin\x64\Debug\Host\`. A **Release** build creates
+`dist/release.zip` (dev-plugin folder). For development, set `VIEWINFFXIV_INSTANCE=<name>` to run a second,
+separate helper next to the game's.
 
-```powershell
-dotnet build ViewInFFXIV\ViewInFFXIV.csproj -c Release -p:Platform=x64
-```
+## Install from the plugin repo
 
-### Dev plugin zip (`release.zip`)
+`/xlsettings` → **Experimental** → **Custom Plugin Repositories** → add
+`https://raw.githubusercontent.com/PayneZA/ViewInFFXIV/main/repo.json` → `/xlplugins` → install **ViewInFFXIV**.
 
-Every **Release** build of the plugin project automatically creates:
-
-| File | Contents |
-|------|----------|
-| `dist/release.zip` | Ready-to-extract dev plugin folder |
-| `dist/ViewInFFXIV-{version}.zip` | Same archive, versioned copy |
-
-Inside the zip: `ViewInFFXIV.dll`, dependencies, `ViewInFFXIV.json`, `Host/` (capture helper), and `INSTALL.txt`.
-
-**To install:** extract anywhere → `/xlsettings` → **Experimental** → **Dev Plugin Locations** → add the extracted folder → `/xlplugins` → enable **ViewInFFXIV**.
-
-Visual Studio **Release \| x64** build produces the zip automatically. No extra step.
-
-## Install from Dalamud plugin installer
-
-Friends can install like a normal third-party plugin — no dev-plugin folder setup.
-
-1. In game: `/xlsettings` → **Experimental** → **Custom Plugin Repositories**
-2. Add this URL:
-
-   ```
-   https://raw.githubusercontent.com/PayneZA/ViewInFFXIV/main/repo.json
-   ```
-
-3. `/xlplugins` → find **ViewInFFXIV** → **Install**
-4. Enable the plugin, then `/viewin start` (or turn on **Start helper with FFXIV** in the menu)
-
-The installer zip includes `ViewInFFXIV.dll` and the `Host/` capture helper together.
-
-### Output folders
-
-| Artifact | Path (Visual Studio, **Debug \| x64**) |
-|----------|----------------------------------------|
-| Plugin | `ViewInFFXIV/bin/x64/Debug/ViewInFFXIV.dll` |
-| Helper | `ViewInFFXIV/bin/x64/Debug/Host/ViewInFFXIV.Host.exe` |
-
-CLI `dotnet build ViewInFFXIV\ViewInFFXIV.csproj -c Debug` (no platform) writes to `ViewInFFXIV/bin/Debug/` instead.
-
-Unload the plugin in Dalamud before rebuilding if the copy step reports that `ViewInFFXIV.Host.exe` is locked.
-
-## Load as a dev plugin
-
-1. Build (see above).
-2. In game: `/xlsettings` → **Experimental** → add the folder containing `ViewInFFXIV.dll` as a **Dev Plugin Location** (typically `ViewInFFXIV/bin/x64/Debug/` when built from Visual Studio, or `ViewInFFXIV/bin/Debug/` from CLI).
-3. `/xlplugins` → **Dev Tools** → **Installed Dev Plugins** → enable **ViewInFFXIV**.
-
-The helper does **not** start automatically unless you enable **Start helper with FFXIV** in the menu (or run `/viewin start`).
-
-## In-game
-
-- `/viewin` — remote (helper start/stop, capture window picker, placement)
-- `/viewin start` / `/viewin stop` — start or stop the capture helper
-- `/viewin place` — put the screen on the wall in front of you
-- `/viewin apply <code>` — apply a wall placement share code
-
-Optional: enable **Keep screen when UI hidden** in `/viewin` to leave the wall TV visible during Scroll Lock, cutscenes, and GPose while the game HUD and plugin menu hide.
-
-Both people need Dalamud + ViewInFFXIV. Open the same watch party in your browsers. A guest without the plugin sees a blank wall.
-
-## Saved spots per zone
-
-Each housing **territory** can store up to **12 named TV placements** (e.g. Lounge, Bedroom). Lounge and bedroom share the same territory ID — use **named spots** to switch between them.
-
-In `/viewin` under **Saved spots**:
-
-- **Spot** combo — switch between saved placements in the current zone
-- **Save spot** — overwrite the active spot with current slider values
-- **New spot** — save the current placement under a new name
-- **Delete spot** — remove the active spot from this zone
-- **Remove from zone** — same as delete spot (clears the active saved placement)
-
-When you leave and re-enter a zone, the last active spot for that territory restores automatically.
-
-## Capture sources
-
-Pick a window in `/viewin` under **Capture window**:
-
-- **Browsers** — Chrome, Brave, Edge, Firefox, Opera, Vivaldi, LibreWolf, and others listed in the helper
-- **Discord** — Discord desktop (stable, PTB, or Canary). Pop out a stream or activity for best results
-
-Audio stays in the browser or Discord app. ViewInFFXIV captures pixels only.
-
-Capture uses **PrintWindow** (Win10/11). Large windows are scaled to fit 1920×1080 before upload. Fullscreen the video (F11) in the browser if the page has sidebars you do not want on the wall.
-
-## Constraints
-
-- **DRM / protected capture.** Netflix-style DRM can black-screen a share. YouTube and typical WatchTogether embeds are the reliable path.
-- **Audio is 2D** from the browser or Discord process. Positional audio from the wall is not in v1.
-- Client overlay only. It does not inject game packets or create real housing furniture.
-
-## Credits & third-party
+## Credits
 
 | Component | Used for | License / link |
 |-----------|----------|----------------|
-| [Dalamud](https://github.com/goatcorp/Dalamud) | Plugin host, UI, textures, hooks | [AGPL-3.0](https://github.com/goatcorp/Dalamud/blob/master/LICENSE) |
-| [WatchTogether.watch](https://watchtogether.watch/) | Watch-party website (use in your own browser) | Their terms |
-| .NET / Windows Forms | Capture helper | Microsoft |
+| [Dalamud](https://github.com/goatcorp/Dalamud) | Plugin host | [AGPL-3.0](https://github.com/goatcorp/Dalamud/blob/master/LICENSE) |
+| [SharpDX](https://github.com/sharpdx/SharpDX) | Direct3D 11 interop | MIT |
+| [Watch2Gether](https://w2g.tv/) | Watch-party rooms | Their terms |
+| [Brave](https://brave.com/) | Browser | Their terms |
 
-ViewInFFXIV is not affiliated with Square Enix, WatchTogether, or the Dalamud team.
+ViewInFFXIV is not affiliated with Square Enix, Watch2Gether, Brave or the Dalamud team.

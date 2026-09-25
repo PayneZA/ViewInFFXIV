@@ -21,7 +21,7 @@ public sealed class HighPerformanceWindow : Window
     private DateTime pendingSubtitlesUntil;
 
     public HighPerformanceWindow(Plugin plugin)
-        : base("ViewInFFXIV — High Performance (Brave)##ViewInFFXIVHighPerformance")
+        : base("ViewInFFXIV##ViewInFFXIVHighPerformance")
     {
         this.plugin = plugin;
         SizeConstraints = new WindowSizeConstraints
@@ -29,7 +29,7 @@ public sealed class HighPerformanceWindow : Window
             MinimumSize = new Vector2(440, 360),
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
         };
-        Size = new Vector2(520, 460);
+        Size = new Vector2(540, 640);
         SizeCondition = ImGuiCond.FirstUseEver;
     }
 
@@ -39,7 +39,7 @@ public sealed class HighPerformanceWindow : Window
         var status = hp.Status;
         var active = hp.Active;
 
-        ImGui.TextUnformatted($"Brave: {(plugin.Host.HelperAlive ? status.State : "helper stopped")}");
+        ImGui.TextUnformatted($"Brave: {(plugin.Host.HelperAlive ? status.State : "off")}");
         if (!string.IsNullOrEmpty(status.Activity))
         {
             ImGui.SameLine();
@@ -48,15 +48,17 @@ public sealed class HighPerformanceWindow : Window
 
         if (!string.IsNullOrEmpty(status.Error))
             ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), status.Error);
+        if (!string.IsNullOrEmpty(plugin.Host.Status.Error))
+            ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), plugin.Host.Status.Error);
 
         if (!active)
         {
-            if (ImGui.Button("Start Brave"))
+            if (ImGui.Button("Start"))
                 hp.Start();
         }
         else
         {
-            if (ImGui.Button("Stop Brave"))
+            if (ImGui.Button("Stop"))
                 hp.Stop();
             ImGui.SameLine();
             if (status.Shown ? ImGui.Button("Hide browser") : ImGui.Button("Show browser"))
@@ -68,7 +70,7 @@ public sealed class HighPerformanceWindow : Window
             }
         }
 
-        ImGui.TextDisabled("Runs a separate ViewInFFXIV Brave off-screen. Minimising it is safe.");
+        ImGui.TextDisabled("Runs its own Brave off-screen (audio plays from it). Minimising it is safe.");
 
         ImGui.Separator();
         ImGui.TextUnformatted("w2g room");
@@ -111,9 +113,35 @@ public sealed class HighPerformanceWindow : Window
 
         ImGui.Separator();
         if (ImGui.Button("Screen placement…"))
-            plugin.ToggleMainUi();
+            plugin.TogglePlacementUi();
         ImGui.SameLine();
-        ImGui.TextDisabled("Only the video goes on the wall; audio plays from Brave.");
+        var screen = plugin.Configuration.ScreenEnabled;
+        if (ImGui.Checkbox("Show screen", ref screen))
+        {
+            plugin.Configuration.ScreenEnabled = screen;
+            if (screen && !plugin.Configuration.HasAnchor)
+                plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, plugin.Configuration);
+            else
+                plugin.Configuration.Save();
+        }
+
+        DrawVideoStatus();
+    }
+
+    private void DrawVideoStatus()
+    {
+        var host = plugin.Host.Status;
+        if (!plugin.Host.HelperAlive || host.SharedTexture.Length == 0)
+            return;
+
+        var video = plugin.Video;
+        ImGui.TextDisabled(
+            $"Wall: {video.Fps:0} fps · Brave {host.Fps:0} fps · {video.Width}x{video.Height} · {(plugin.Renderer.UsingOverlay ? "Overlay" : "fallback draw")}");
+        if (video.Handle is { } image && video.Height > 0)
+        {
+            var w = MathF.Min(ImGui.GetContentRegionAvail().X, 320f);
+            ImGui.Image(image, new Vector2(w, w * video.Height / video.Width));
+        }
     }
 
     private void DrawPlayback(HighPerformance hp)

@@ -7,20 +7,11 @@ public sealed class HostCommand
     [JsonPropertyName("op")]
     public string Op { get; set; } = "";
 
-    [JsonPropertyName("hwnd")]
-    public long? Hwnd { get; set; }
-
     [JsonPropertyName("arg")]
     public string? Arg { get; set; }
 
     [JsonPropertyName("arg2")]
     public string? Arg2 { get; set; }
-
-    public static HostCommand SetWindow(long hwnd) => new() { Op = "source", Hwnd = hwnd };
-
-    public static HostCommand ClearWindow() => new() { Op = "source", Hwnd = 0 };
-
-    public static HostCommand ListWindows() => new() { Op = "listWindows" };
 
     public static HostCommand Ping() => new() { Op = "ping" };
 
@@ -32,6 +23,7 @@ public sealed class HostCommand
 /// <summary>High Performance mode (/viewinff): the helper launches and drives its own off-screen Brave.</summary>
 public static class ManagedOps
 {
+    /// <summary>Arg = browser profile folder, Arg2 = the game's GPU adapter LUID (decimal).</summary>
     public const string Start = "ffStart";
     public const string Stop = "ffStop";
     public const string Create = "ffCreate";

@@ -1,5 +1,5 @@
 using System.Numerics;
-using Dalamud.Interface.Textures.TextureWraps;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Plugin.Services;
 using Overlay;
 
@@ -39,14 +39,14 @@ public sealed class ScreenRenderer : IDisposable
         }
     }
 
-    public void Draw(IDalamudTextureWrap? texture)
+    public void Draw(ImTextureID? texture)
     {
         if (!config.ScreenEnabled || config.ScreenTerritory != client.TerritoryType)
             return;
         if (!ScreenPlacement.TryGetCorners(config, out var center, out var right, out var down))
             return;
 
-        if (!overlayFailed && overlay != null && texture != null)
+        if (!overlayFailed && overlay != null && texture is { } image)
         {
             using var draw = OverlayService.Draw(hints: new OverlayDrawHints
             {
@@ -65,7 +65,7 @@ public sealed class ScreenRenderer : IDisposable
                     center + (right * 0.5f * bezel) + (down * 0.5f * bezel),
                     center - (right * 0.5f * bezel) + (down * 0.5f * bezel),
                     0xFF101010);
-                draw.AddImage(texture, center, right, down);
+                draw.AddImage(image, center, right, down);
                 return;
             }
         }
@@ -73,7 +73,7 @@ public sealed class ScreenRenderer : IDisposable
         DrawImGuiFallback(texture, center, right, down);
     }
 
-    private void DrawImGuiFallback(IDalamudTextureWrap? texture, Vector3 center, Vector3 right, Vector3 down)
+    private void DrawImGuiFallback(ImTextureID? texture, Vector3 center, Vector3 right, Vector3 down)
     {
         var tl = center - (right * 0.5f) - (down * 0.5f);
         var tr = center + (right * 0.5f) - (down * 0.5f);
@@ -85,9 +85,9 @@ public sealed class ScreenRenderer : IDisposable
             || !gameGui.WorldToScreen(bl, out var sbl))
             return;
 
-        var dl = Dalamud.Bindings.ImGui.ImGui.GetBackgroundDrawList();
-        if (texture != null)
-            dl.AddImageQuad(texture.Handle, stl, str, sbr, sbl);
+        var dl = ImGui.GetBackgroundDrawList();
+        if (texture is { } image)
+            dl.AddImageQuad(image, stl, str, sbr, sbl);
         else
             dl.AddQuadFilled(stl, str, sbr, sbl, 0xFF101010);
     }

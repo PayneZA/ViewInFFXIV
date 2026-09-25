@@ -2,7 +2,6 @@ using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using ViewInFFXIV.World;
-using ViewInFFXIV.Shared;
 
 namespace ViewInFFXIV.Windows;
 
@@ -13,15 +12,15 @@ public sealed class RemoteWindow : Window, IDisposable
     private string newPresetName = "";
 
     public RemoteWindow(Plugin plugin)
-        : base("ViewInFFXIV##ViewInFFXIVRemote")
+        : base("ViewInFFXIV — Screen placement##ViewInFFXIVRemote")
     {
         this.plugin = plugin;
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(420, 520),
+            MinimumSize = new Vector2(420, 380),
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
         };
-        Size = new Vector2(520, 720);
+        Size = new Vector2(520, 560);
         SizeCondition = ImGuiCond.FirstUseEver;
     }
 
@@ -32,18 +31,7 @@ public sealed class RemoteWindow : Window, IDisposable
     public override void Draw()
     {
         var config = plugin.Configuration;
-        var status = plugin.Host.Status;
-        var hasCaptureWindow = !string.IsNullOrWhiteSpace(config.CaptureProcess);
-        var helperRunning = plugin.Host.HelperAlive;
 
-        DrawHelperControls(config, helperRunning);
-
-        ImGui.Separator();
-        ImGui.TextUnformatted("Capture window");
-        DrawSourceCombo(config, status, helperRunning);
-        ImGui.TextDisabled("Pick a browser or Discord window. Audio stays in that app.");
-
-        ImGui.Separator();
         ImGui.TextUnformatted("House screen — sliders move it live");
         DrawSavedSpots(config);
         ScreenPlacement.EnsureAnchor(config);
@@ -138,10 +126,6 @@ public sealed class RemoteWindow : Window, IDisposable
         if (ImGui.Button("Apply"))
             plugin.ApplyShareCode(shareInput);
         ImGui.TextDisabled("Tell-safe. Does not include the room URL.");
-
-        ImGui.Separator();
-        DrawStatus(status, helperRunning);
-        DrawPreview(hasCaptureWindow, helperRunning);
     }
 
     private void DrawSavedSpots(Configuration config)
@@ -210,159 +194,6 @@ public sealed class RemoteWindow : Window, IDisposable
         var territoryId = Plugin.ClientState.TerritoryType;
         if (territoryId != 0)
             PlacementPresets.SaveActivePreset(config, territoryId);
-    }
-
-    private void DrawHelperControls(Configuration config, bool helperRunning)
-    {
-        ImGui.TextUnformatted($"Helper: {(helperRunning ? "running" : "stopped")}");
-
-        if (helperRunning)
-        {
-            if (ImGui.Button("Stop helper"))
-                plugin.Host.StopHost();
-        }
-        else if (ImGui.Button("Start helper"))
-        {
-            plugin.Host.StartHost();
-        }
-
-        ImGui.SameLine();
-        var autoStart = config.AutoStartHost;
-        if (ImGui.Checkbox("Start helper with FFXIV", ref autoStart))
-        {
-            config.AutoStartHost = autoStart;
-            config.Save();
-        }
-    }
-
-    private void DrawSourceCombo(Configuration config, HostStatus status, bool helperRunning)
-    {
-        var windows = status.Windows ?? [];
-        var labels = new List<string> { "(none)" };
-        var sources = new List<BrowserWindowInfo?> { null };
-        var current = 0;
-        var waiting = false;
-
-        if (hasSavedCapture(config))
-        {
-            var matchIndex = windows.FindIndex(w =>
-                w.Process.Equals(config.CaptureProcess, StringComparison.OrdinalIgnoreCase)
-                && w.Title == config.CaptureTitle);
-            if (matchIndex < 0)
-            {
-                matchIndex = windows.FindIndex(w =>
-                    w.Process.Equals(config.CaptureProcess, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (matchIndex < 0)
-            {
-                waiting = true;
-                labels.Add($"{BrowserCatalog.Label(config.CaptureProcess, config.CaptureTitle)} (closed)");
-                sources.Add(null);
-                current = 1;
-            }
-        }
-
-        foreach (var window in windows)
-        {
-            labels.Add(BrowserCatalog.Label(window.Process, window.Title));
-            sources.Add(window);
-        }
-
-        if (hasSavedCapture(config) && !waiting)
-        {
-            var liveIndex = windows.FindIndex(w =>
-                w.Process.Equals(config.CaptureProcess, StringComparison.OrdinalIgnoreCase)
-                && w.Title == config.CaptureTitle);
-            if (liveIndex < 0)
-            {
-                liveIndex = windows.FindIndex(w =>
-                    w.Process.Equals(config.CaptureProcess, StringComparison.OrdinalIgnoreCase));
-            }
-
-            if (liveIndex >= 0)
-                current = liveIndex + 1;
-        }
-
-        if (current < 0 || current >= labels.Count)
-            current = 0;
-
-        if (!helperRunning)
-            ImGui.BeginDisabled();
-
-        var items = labels.ToArray();
-        if (ImGui.Combo("Window", ref current, items, items.Length))
-        {
-            if (current <= 0)
-                plugin.SetCaptureWindow(null);
-            else if (sources[current] is { } chosen)
-                plugin.SetCaptureWindow(chosen);
-        }
-
-        ImGui.SameLine();
-        if (ImGui.Button("Refresh"))
-            plugin.Host.Send(HostCommand.ListWindows());
-
-        if (!helperRunning)
-            ImGui.EndDisabled();
-    }
-
-    private static bool hasSavedCapture(Configuration config) =>
-        !string.IsNullOrWhiteSpace(config.CaptureProcess);
-
-    private void DrawStatus(HostStatus status, bool helperRunning)
-    {
-        if (!helperRunning)
-        {
-            ImGui.TextUnformatted("Helper: stopped");
-            return;
-        }
-
-        var source = status.Source == "window"
-            ? (string.IsNullOrEmpty(status.CapturedTitle) ? "browser" : status.CapturedTitle)
-            : "none";
-        ImGui.TextUnformatted(
-            $"Helper: alive   " +
-            $"Window: {source}   " +
-            $"Capture: {(string.IsNullOrEmpty(status.Capture) ? "—" : status.Capture)}   " +
-            $"FPS: {status.Fps:0}   " +
-            $"{status.Width}x{status.Height}");
-        if (!string.IsNullOrEmpty(status.Error))
-            ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), status.Error);
-        ImGui.TextDisabled(plugin.Renderer.UsingOverlay
-            ? "World draw: overlay (occluded by walls)"
-            : "World draw: WorldToScreen fallback");
-    }
-
-    private void DrawPreview(bool hasCaptureWindow, bool helperRunning)
-    {
-        if (!helperRunning)
-        {
-            ImGui.TextUnformatted("Helper stopped. Click Start helper to begin.");
-            return;
-        }
-
-        var texture = plugin.Host.Texture;
-        if (texture == null)
-        {
-            ImGui.TextUnformatted(hasCaptureWindow
-                ? "No video frame yet. Fullscreen the video in that window (F11) if needed."
-                : "Select a browser or Discord window above.");
-            return;
-        }
-
-        var avail = ImGui.GetContentRegionAvail();
-        var aspect = texture.Height > 0 ? texture.Width / (float)texture.Height : 16f / 9f;
-        var w = MathF.Max(160f, avail.X);
-        var h = w / aspect;
-        if (h > 280f)
-        {
-            h = 280f;
-            w = h * aspect;
-        }
-
-        ImGui.TextUnformatted("Preview");
-        ImGui.Image(texture.Handle, new Vector2(w, h));
     }
 
     private bool LiveSlider(string label, ref float value, float min, float max)

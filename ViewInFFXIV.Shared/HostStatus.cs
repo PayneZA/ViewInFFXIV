@@ -19,23 +19,16 @@ public sealed class HostStatus
     [JsonPropertyName("generation")]
     public ulong Generation { get; set; }
 
+    /// <summary>GPU the helper captures on.</summary>
     [JsonPropertyName("capture")]
     public string Capture { get; set; } = "";
-
-    [JsonPropertyName("source")]
-    public string Source { get; set; } = "none";
 
     [JsonPropertyName("error")]
     public string? Error { get; set; }
 
-    [JsonPropertyName("sharedHandle")]
-    public ulong SharedHandle { get; set; }
-
-    [JsonPropertyName("capturedTitle")]
-    public string CapturedTitle { get; set; } = "";
-
-    [JsonPropertyName("windows")]
-    public List<BrowserWindowInfo> Windows { get; set; } = [];
+    /// <summary>Name of the D3D11 shared texture with the video; empty while not capturing.</summary>
+    [JsonPropertyName("texture")]
+    public string SharedTexture { get; set; } = "";
 
     [JsonPropertyName("managed")]
     public ManagedBrowserStatus Managed { get; set; } = new();

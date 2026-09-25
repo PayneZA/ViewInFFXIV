@@ -3,8 +3,7 @@ using System.Diagnostics;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
-using Dalamud.Interface.Textures;
-using Dalamud.Interface.Textures.TextureWraps;
+using System.Runtime.InteropServices;
 using Dalamud.Plugin.Services;
 using ViewInFFXIV.Shared;
 
@@ -13,24 +12,17 @@ namespace ViewInFFXIV.Host;
 public sealed class HostClient : IDisposable
 {
     private readonly IPluginLog log;
-    private readonly ITextureProvider textures;
     private readonly string hostExe;
     private readonly ConcurrentQueue<HostCommand> outbound = new();
     private readonly SemaphoreSlim wake = new(0);
     private readonly CancellationTokenSource ipcCts = new();
     private readonly Task ipcLoop;
     private volatile Process? process;
-    private FrameBuffer? frames;
-    private IDalamudTextureWrap? wrap;
-    private byte[] upload = [];
-    private ulong lastGeneration;
     private DateTime lastLaunchUtc = DateTime.MinValue;
     private bool disposed;
 
     /// <summary>Latest status from the helper. Replaced (never mutated) by the IPC thread.</summary>
     public HostStatus Status { get; private set; } = new();
-
-    public IDalamudTextureWrap? Texture => wrap;
 
     public bool HelperAlive
     {
@@ -49,11 +41,9 @@ public sealed class HostClient : IDisposable
 
     public bool HostEnabled { get; private set; }
 
-    public HostClient(IPluginLog log, ITextureProvider textures, string assemblyDirectory, bool hostEnabled)
+    public HostClient(IPluginLog log, string assemblyDirectory)
     {
         this.log = log;
-        this.textures = textures;
-        HostEnabled = hostEnabled;
         var nested = Path.Combine(assemblyDirectory, "Host", "ViewInFFXIV.Host.exe");
         var beside = Path.Combine(assemblyDirectory, "ViewInFFXIV.Host.exe");
         hostExe = File.Exists(nested) ? nested : beside;
@@ -67,10 +57,6 @@ public sealed class HostClient : IDisposable
             return;
 
         EnsureProcess();
-        if (!HelperAlive)
-            return;
-
-        UploadFrame();
     }
 
     public void Send(HostCommand command)
@@ -107,11 +93,6 @@ public sealed class HostClient : IDisposable
 
         process = null;
         p?.Dispose();
-        wrap?.Dispose();
-        wrap = null;
-        frames?.Dispose();
-        frames = null;
-        lastGeneration = 0;
         Status = new HostStatus();
     }
 
@@ -133,12 +114,22 @@ public sealed class HostClient : IDisposable
         try
         {
             process?.Dispose();
-            process = Process.Start(new ProcessStartInfo
+            var start = new ProcessStartInfo
             {
                 FileName = hostExe,
                 WorkingDirectory = Path.GetDirectoryName(hostExe)!,
                 UseShellExecute = false,
-            });
+            };
+
+            // The helper closes itself (and its Brave) when the game exits.
+            start.ArgumentList.Add("--parent");
+            start.ArgumentList.Add(Environment.ProcessId.ToString());
+
+            // Run the helper on the .NET that XIVLauncher already ships, so nobody has to install .NET.
+            if (DalamudDotnetRoot() is { } root)
+                start.Environment["DOTNET_ROOT"] = root;
+
+            process = Process.Start(start);
             lastLaunchUtc = DateTime.UtcNow;
             log.Information("Started ViewInFFXIV.Host from {Path}", hostExe);
         }
@@ -229,42 +220,22 @@ public sealed class HostClient : IDisposable
         Drop();
     }
 
-    private void UploadFrame()
+    /// <summary>
+    /// Root of the .NET runtime the game is running Dalamud on (e.g. %AppData%/XIVLauncher/runtime), if it
+    /// also has the Windows Desktop runtime the helper needs.
+    /// </summary>
+    private static string? DalamudDotnetRoot()
     {
-        frames ??= FrameBuffer.TryOpen();
-        if (frames == null)
-            return;
-
-        // Only copy the 8 MB frame when the helper actually published a new one.
-        var published = frames.PeekGeneration();
-        if (published == 0 || published == lastGeneration)
-            return;
-
-        if (!frames.TryCopyLatest(EnsureUpload(IpcConstants.MaxWidth * IpcConstants.MaxHeight * 4), out var width, out var height, out var generation, out _))
-            return;
-        if (generation == lastGeneration || width <= 0 || height <= 0)
-            return;
-
-        var packed = width * height * 4;
         try
         {
-            var spec = RawImageSpecification.Bgra32(width, height);
-            var next = textures.CreateFromRaw(spec, upload.AsSpan(0, packed), "ViewInFFXIV.Video");
-            wrap?.Dispose();
-            wrap = next;
-            lastGeneration = generation;
+            // The runtime directory is <root>/shared/Microsoft.NETCore.App/<version>/.
+            var root = Path.GetFullPath(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", ".."));
+            return Directory.Exists(Path.Combine(root, "shared", "Microsoft.WindowsDesktop.App")) ? root : null;
         }
-        catch (Exception ex)
+        catch
         {
-            log.Debug(ex, "Failed to upload ViewInFFXIV frame");
+            return null;
         }
-    }
-
-    private byte[] EnsureUpload(int size)
-    {
-        if (upload.Length < size)
-            upload = new byte[size];
-        return upload;
     }
 
     public void Dispose()
