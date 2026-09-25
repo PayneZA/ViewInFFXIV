@@ -28,7 +28,7 @@ internal sealed class CaptureEngine : IDisposable
         this.frames = frames;
     }
 
-    public bool TryTick(IntPtr hwnd, int width, int height)
+    public bool TryTick(IntPtr hwnd, int width, int height, CropRect? crop = null)
     {
         if (hwnd == IntPtr.Zero || width < 2 || height < 2)
             return false;
@@ -39,7 +39,7 @@ internal sealed class CaptureEngine : IDisposable
         try
         {
             TickFps();
-            CapturePrintWindow(hwnd, width, height);
+            CapturePrintWindow(hwnd, width, height, crop);
             LastError = null;
             return true;
         }
@@ -54,7 +54,7 @@ internal sealed class CaptureEngine : IDisposable
         }
     }
 
-    private unsafe void CapturePrintWindow(IntPtr hwnd, int width, int height)
+    private unsafe void CapturePrintWindow(IntPtr hwnd, int width, int height, CropRect? crop)
     {
         // PrintWindow does not scale — bitmap must match HWND size. Contain-scale happens in ScalePrintNativeToOutput.
         var native = CaptureFit.FitInside(width, height, IpcConstants.MaxNativeWidth, IpcConstants.MaxNativeHeight);
@@ -72,7 +72,7 @@ internal sealed class CaptureEngine : IDisposable
             }
         }
 
-        ScalePrintNativeToOutput();
+        ScalePrintNativeToOutput(crop);
     }
 
     private void EnsurePrintBitmaps(int nativeW, int nativeH)
@@ -95,15 +95,16 @@ internal sealed class CaptureEngine : IDisposable
         }
     }
 
-    private unsafe void ScalePrintNativeToOutput()
+    private unsafe void ScalePrintNativeToOutput(CropRect? crop)
     {
-        var dest = CaptureFit.DestRect(printNative!.Width, printNative.Height, IpcConstants.MaxWidth, IpcConstants.MaxHeight);
+        var src = SourceRect(printNative!.Width, printNative.Height, crop);
+        var dest = CaptureFit.DestRect(src.Width, src.Height, IpcConstants.MaxWidth, IpcConstants.MaxHeight);
         using (var g = Graphics.FromImage(printOutput!))
         {
             g.Clear(Color.Black);
             g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Bilinear;
             g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighSpeed;
-            g.DrawImage(printNative, new Rectangle(dest.X, dest.Y, dest.Width, dest.Height));
+            g.DrawImage(printNative, new Rectangle(dest.X, dest.Y, dest.Width, dest.Height), src, GraphicsUnit.Pixel);
         }
 
         var data = printOutput!.LockBits(
@@ -119,6 +120,18 @@ internal sealed class CaptureEngine : IDisposable
         {
             printOutput.UnlockBits(data);
         }
+    }
+
+    private static Rectangle SourceRect(int width, int height, CropRect? crop)
+    {
+        if (crop == null)
+            return new Rectangle(0, 0, width, height);
+
+        var left = Math.Clamp((int)(crop.Left * width), 0, width - 2);
+        var top = Math.Clamp((int)(crop.Top * height), 0, height - 2);
+        var right = Math.Clamp((int)MathF.Ceiling(crop.Right * width), left + 2, width);
+        var bottom = Math.Clamp((int)MathF.Ceiling(crop.Bottom * height), top + 2, height);
+        return Rectangle.FromLTRB(left, top, right, bottom);
     }
 
     private void TickFps()

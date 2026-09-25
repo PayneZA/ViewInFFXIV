@@ -96,6 +96,14 @@ public sealed class Configuration : IPluginConfiguration
 
     public float AnchorYaw { get; set; }
 
+    /// <summary>High Performance mode: English subtitles wanted (applied to every video instead of YouTube's default).</summary>
+    public bool SubtitlesOn { get; set; }
+
+    /// <summary>High Performance mode: YouTube volume, 0-100.</summary>
+    public int Volume { get; set; } = 100;
+
+    public string LastRoomUrl { get; set; } = "";
+
     public Vector3 ScreenPosition => new(ScreenX, ScreenY, ScreenZ);
 
     public void Save()

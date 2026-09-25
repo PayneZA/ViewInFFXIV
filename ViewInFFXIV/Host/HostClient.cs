@@ -16,24 +16,36 @@ public sealed class HostClient : IDisposable
     private readonly ITextureProvider textures;
     private readonly string hostExe;
     private readonly ConcurrentQueue<HostCommand> outbound = new();
-    private NamedPipeClientStream? pipe;
-    private StreamWriter? writer;
-    private StreamReader? reader;
-    private Process? process;
+    private readonly SemaphoreSlim wake = new(0);
+    private readonly CancellationTokenSource ipcCts = new();
+    private readonly Task ipcLoop;
+    private volatile Process? process;
     private FrameBuffer? frames;
     private IDalamudTextureWrap? wrap;
     private byte[] upload = [];
     private ulong lastGeneration;
     private DateTime lastLaunchUtc = DateTime.MinValue;
-    private DateTime lastPingUtc = DateTime.MinValue;
-    private DateTime lastPipeAttemptUtc = DateTime.MinValue;
     private bool disposed;
 
+    /// <summary>Latest status from the helper. Replaced (never mutated) by the IPC thread.</summary>
     public HostStatus Status { get; private set; } = new();
 
     public IDalamudTextureWrap? Texture => wrap;
 
-    public bool HelperAlive => process is { HasExited: false };
+    public bool HelperAlive
+    {
+        get
+        {
+            try
+            {
+                return process is { HasExited: false };
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+    }
 
     public bool HostEnabled { get; private set; }
 
@@ -45,6 +57,8 @@ public sealed class HostClient : IDisposable
         var nested = Path.Combine(assemblyDirectory, "Host", "ViewInFFXIV.Host.exe");
         var beside = Path.Combine(assemblyDirectory, "ViewInFFXIV.Host.exe");
         hostExe = File.Exists(nested) ? nested : beside;
+        // Pipe connect/read/write never runs on the game thread.
+        ipcLoop = Task.Run(IpcLoopAsync);
     }
 
     public void Tick()
@@ -56,14 +70,13 @@ public sealed class HostClient : IDisposable
         if (!HelperAlive)
             return;
 
-        EnsurePipe();
-        PumpIpc();
         UploadFrame();
     }
 
     public void Send(HostCommand command)
     {
         outbound.Enqueue(command);
+        wake.Release();
     }
 
     public void StartHost()
@@ -75,35 +88,30 @@ public sealed class HostClient : IDisposable
     public void StopHost()
     {
         HostEnabled = false;
-        try
+        var p = process;
+        if (p != null && HelperAlive)
         {
-            if (pipe is { IsConnected: true } && writer != null)
-                writer.WriteLine(JsonSerializer.Serialize(HostCommand.Quit()));
-        }
-        catch
-        {
-            // ignored
+            // Ask politely so the helper closes its Brave cleanly, then make sure it is gone.
+            outbound.Clear();
+            Send(HostCommand.Quit());
+            try
+            {
+                if (!p.WaitForExit(1500))
+                    p.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
 
-        DisposePipe();
+        process = null;
+        p?.Dispose();
         wrap?.Dispose();
         wrap = null;
         frames?.Dispose();
         frames = null;
         lastGeneration = 0;
-
-        try
-        {
-            if (process is { HasExited: false })
-                process.Kill(entireProcessTree: true);
-        }
-        catch
-        {
-            // ignored
-        }
-
-        process?.Dispose();
-        process = null;
         Status = new HostStatus();
     }
 
@@ -141,73 +149,95 @@ public sealed class HostClient : IDisposable
         }
     }
 
-    private void EnsurePipe()
+    private async Task IpcLoopAsync()
     {
-        if (pipe is { IsConnected: true })
-            return;
-        if (!HelperAlive)
-            return;
-        if (DateTime.UtcNow - lastPipeAttemptUtc < TimeSpan.FromMilliseconds(250))
-            return;
+        var ct = ipcCts.Token;
+        NamedPipeClientStream? pipe = null;
+        StreamWriter? writer = null;
+        StreamReader? reader = null;
 
-        lastPipeAttemptUtc = DateTime.UtcNow;
-        try
+        void Drop()
         {
-            DisposePipe();
-            pipe = new NamedPipeClientStream(
-                ".",
-                IpcConstants.PipeName,
-                PipeDirection.InOut,
-                PipeOptions.None);
-            pipe.Connect(80);
-            writer = new StreamWriter(pipe, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true)
-            {
-                AutoFlush = true,
-            };
-            reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
-            frames ??= FrameBuffer.TryOpen();
+            try { writer?.Dispose(); } catch { /* ignored */ }
+            try { reader?.Dispose(); } catch { /* ignored */ }
+            try { pipe?.Dispose(); } catch { /* ignored */ }
+            writer = null;
+            reader = null;
+            pipe = null;
         }
-        catch
-        {
-            DisposePipe();
-        }
-    }
 
-    private void PumpIpc()
-    {
-        if (pipe is not { IsConnected: true } || writer == null || reader == null)
-            return;
-
-        try
+        while (!ct.IsCancellationRequested)
         {
-            HostCommand command;
-            if (!outbound.TryDequeue(out command!))
+            try
             {
-                if (DateTime.UtcNow - lastPingUtc < TimeSpan.FromMilliseconds(400))
-                    return;
-                command = HostCommand.Ping();
+                if (!HelperAlive)
+                {
+                    Drop();
+                    await Task.Delay(250, ct).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (pipe is not { IsConnected: true })
+                {
+                    Drop();
+                    pipe = new NamedPipeClientStream(".", IpcConstants.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+                    await pipe.ConnectAsync(1000, ct).ConfigureAwait(false);
+                    writer = new StreamWriter(pipe, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true) { AutoFlush = true };
+                    reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true);
+                }
+
+                // Commands go out immediately; otherwise poll the status a few times a second.
+                if (!outbound.TryDequeue(out var command))
+                {
+                    await wake.WaitAsync(400, ct).ConfigureAwait(false);
+                    if (!outbound.TryDequeue(out command))
+                        command = HostCommand.Ping();
+                }
+
+                await writer!.WriteLineAsync(JsonSerializer.Serialize(command).AsMemory(), ct).ConfigureAwait(false);
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(3));
+                var line = await reader!.ReadLineAsync(timeout.Token).ConfigureAwait(false);
+                if (line == null)
+                {
+                    Drop();
+                    continue;
+                }
+
+                if (JsonSerializer.Deserialize<HostStatus>(line) is { } status && HelperAlive)
+                    Status = status;
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                log.Debug(ex, "ViewInFFXIV IPC failed; reconnecting");
+                Drop();
+                try
+                {
+                    await Task.Delay(250, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+        }
 
-            writer.WriteLine(JsonSerializer.Serialize(command));
-            lastPingUtc = DateTime.UtcNow;
-            var line = reader.ReadLine();
-            if (string.IsNullOrWhiteSpace(line))
-                return;
-            var status = JsonSerializer.Deserialize<HostStatus>(line);
-            if (status != null)
-                Status = status;
-        }
-        catch (Exception ex)
-        {
-            log.Debug(ex, "ViewInFFXIV IPC pump failed");
-            DisposePipe();
-        }
+        Drop();
     }
 
     private void UploadFrame()
     {
         frames ??= FrameBuffer.TryOpen();
         if (frames == null)
+            return;
+
+        // Only copy the 8 MB frame when the helper actually published a new one.
+        var published = frames.PeekGeneration();
+        if (published == 0 || published == lastGeneration)
             return;
 
         if (!frames.TryCopyLatest(EnsureUpload(IpcConstants.MaxWidth * IpcConstants.MaxHeight * 4), out var width, out var height, out var generation, out _))
@@ -223,10 +253,6 @@ public sealed class HostClient : IDisposable
             wrap?.Dispose();
             wrap = next;
             lastGeneration = generation;
-            Status.Width = width;
-            Status.Height = height;
-            Status.Generation = generation;
-            Status.Alive = true;
         }
         catch (Exception ex)
         {
@@ -241,16 +267,6 @@ public sealed class HostClient : IDisposable
         return upload;
     }
 
-    private void DisposePipe()
-    {
-        try { writer?.Dispose(); } catch { /* ignored */ }
-        try { reader?.Dispose(); } catch { /* ignored */ }
-        try { pipe?.Dispose(); } catch { /* ignored */ }
-        writer = null;
-        reader = null;
-        pipe = null;
-    }
-
     public void Dispose()
     {
         if (disposed)
@@ -258,5 +274,17 @@ public sealed class HostClient : IDisposable
 
         disposed = true;
         StopHost();
+        ipcCts.Cancel();
+        try
+        {
+            ipcLoop.Wait(1000);
+        }
+        catch
+        {
+            // ignored
+        }
+
+        ipcCts.Dispose();
+        wake.Dispose();
     }
 }

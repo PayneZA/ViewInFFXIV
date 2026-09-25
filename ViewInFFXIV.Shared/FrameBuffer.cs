@@ -145,6 +145,14 @@ public sealed unsafe class FrameBuffer : IDisposable
         Volatile.Write(ref header->Ready, 1u);
     }
 
+    /// <summary>Cheap check so readers can skip the copy when no new frame was published.</summary>
+    public ulong PeekGeneration()
+    {
+        ThrowIfDisposed();
+        var header = (Header*)basePtr;
+        return header->Ready == 0 ? 0 : Volatile.Read(ref header->Generation);
+    }
+
     public bool TryCopyLatest(Span<byte> destPacked, out int width, out int height, out ulong generation, out float fps)
     {
         width = 0;
