@@ -60,6 +60,9 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool KeepScreenWhenUiHidden { get; set; }
 
+    /// <summary>Draw the screen in the game's own UI layer so chat bubbles, name plates and the HUD stay on top.</summary>
+    public bool DrawBehindGameUi { get; set; } = true;
+
     public uint ScreenTerritory { get; set; }
 
     public float ScreenX { get; set; }
@@ -90,10 +93,10 @@ public sealed class Configuration : IPluginConfiguration
 
     public float AnchorYaw { get; set; }
 
-    /// <summary>High Performance mode: English subtitles wanted (applied to every video instead of YouTube's default).</summary>
+    /// <summary>English subtitles wanted (applied to every video instead of YouTube's default).</summary>
     public bool SubtitlesOn { get; set; }
 
-    /// <summary>High Performance mode: YouTube volume, 0-100.</summary>
+    /// <summary>YouTube volume, 0-100 (yours only, not synced to the room).</summary>
     public int Volume { get; set; } = 100;
 
     public string LastRoomUrl { get; set; } = "";

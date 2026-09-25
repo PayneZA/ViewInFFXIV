@@ -3,6 +3,7 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using ViewInFFXIV.Host;
 using ViewInFFXIV.Shared;
+using ViewInFFXIV.World;
 
 namespace ViewInFFXIV.Windows;
 
@@ -115,14 +116,22 @@ public sealed class HighPerformanceWindow : Window
         if (ImGui.Button("Screen placement…"))
             plugin.TogglePlacementUi();
         ImGui.SameLine();
-        var screen = plugin.Configuration.ScreenEnabled;
+        var config = plugin.Configuration;
+        var screen = config.ScreenEnabled;
         if (ImGui.Checkbox("Show screen", ref screen))
         {
-            plugin.Configuration.ScreenEnabled = screen;
-            if (screen && !plugin.Configuration.HasAnchor)
-                plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, plugin.Configuration);
+            config.ScreenEnabled = screen;
+            if (screen && !config.HasAnchor)
+            {
+                plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, config);
+            }
             else
-                plugin.Configuration.Save();
+            {
+                // Store it in this zone's saved spot too, or re-entering the zone brings the old value back.
+                if (Plugin.ClientState.TerritoryType != 0)
+                    PlacementPresets.SaveActivePreset(config, Plugin.ClientState.TerritoryType);
+                config.Save();
+            }
         }
 
         DrawVideoStatus();
@@ -135,8 +144,10 @@ public sealed class HighPerformanceWindow : Window
             return;
 
         var video = plugin.Video;
+        if (video.Error != null)
+            ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), video.Error);
         ImGui.TextDisabled(
-            $"Wall: {video.Fps:0} fps · Brave {host.Fps:0} fps · {video.Width}x{video.Height} · {(plugin.Renderer.UsingOverlay ? "Overlay" : "fallback draw")}");
+            $"Wall: {video.Fps:0} fps · Brave {host.Fps:0} fps · {video.Width}x{video.Height} · {(plugin.Renderer.UsingOverlay ? plugin.Renderer.DrawingBehindUi ? "Overlay, behind UI" : "Overlay" : "fallback draw")}");
         if (video.Handle is { } image && video.Height > 0)
         {
             var w = MathF.Min(ImGui.GetContentRegionAvail().X, 320f);

@@ -36,14 +36,17 @@ internal sealed class GpuCapture : IDisposable
     private Windows.Graphics.SizeInt32 poolSize;
     private int framesThisSecond;
     private DateTime fpsAnchor = DateTime.UtcNow;
+    private DateTime lastFrameUtc;
+    private float fps;
     private bool disposed;
 
     private static int instance;
 
     public GpuCapture(long adapterLuid)
     {
-        device = CreateDevice(adapterLuid, out var adapterName);
+        device = CreateDevice(adapterLuid, out var adapterName, out var matched);
         AdapterName = adapterName;
+        AdapterMatched = matched;
 
         using (var dxgiDevice = device.QueryInterface<SharpDX.DXGI.Device>())
         {
@@ -85,7 +88,11 @@ internal sealed class GpuCapture : IDisposable
 
     public string AdapterName { get; }
 
-    public float Fps { get; private set; }
+    /// <summary>False when the game's GPU was not found; the game then cannot open the shared texture.</summary>
+    public bool AdapterMatched { get; }
+
+    /// <summary>Frames per second written for the game; 0 once frames stop (Brave does not repaint a paused video).</summary>
+    public float Fps => DateTime.UtcNow - lastFrameUtc > TimeSpan.FromSeconds(2) ? 0 : fps;
 
     public ulong Frames { get; private set; }
 
@@ -145,7 +152,7 @@ internal sealed class GpuCapture : IDisposable
 
         item = null;
         Window = IntPtr.Zero;
-        Fps = 0;
+        fps = 0;
     }
 
     private void OnFrameArrived(Direct3D11CaptureFramePool sender, object args)
@@ -232,10 +239,11 @@ internal sealed class GpuCapture : IDisposable
     {
         framesThisSecond++;
         var now = DateTime.UtcNow;
+        lastFrameUtc = now;
         var elapsed = (now - fpsAnchor).TotalSeconds;
         if (elapsed < 1)
             return;
-        Fps = (float)(framesThisSecond / elapsed);
+        fps = (float)(framesThisSecond / elapsed);
         framesThisSecond = 0;
         fpsAnchor = now;
     }
@@ -302,8 +310,9 @@ internal sealed class GpuCapture : IDisposable
     }
 
     /// <summary>The game's GPU (by LUID) so the texture can be shared; laptops often have two.</summary>
-    private static D3D11Device CreateDevice(long adapterLuid, out string adapterName)
+    private static D3D11Device CreateDevice(long adapterLuid, out string adapterName, out bool matched)
     {
+        matched = true;
         using var factory = new Factory1();
         foreach (var adapter in factory.Adapters1)
         {
@@ -317,6 +326,7 @@ internal sealed class GpuCapture : IDisposable
         }
 
         adapterName = "default";
+        matched = adapterLuid == 0;
         return new D3D11Device(DriverType.Hardware, DeviceCreationFlags.BgraSupport, FeatureLevel.Level_11_0);
     }
 

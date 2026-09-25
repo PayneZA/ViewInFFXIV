@@ -11,7 +11,7 @@ namespace ViewInFFXIV.Host;
 internal sealed record CropRect(float Left, float Top, float Right, float Bottom);
 
 /// <summary>
-/// High Performance mode: a dedicated Brave instance on the ViewInFFXIV profile, launched with
+/// The watch-party browser: a dedicated Brave instance on the ViewInFFXIV profile, launched with
 /// anti-throttling flags and parked off-screen so it keeps rendering while nobody can see it.
 /// Minimising would stop rendering, so a minimised window is restored straight back off-screen.
 /// </summary>
@@ -66,11 +66,25 @@ internal sealed class ManagedBrowser : IDisposable
 
     public CropRect? Crop { get; private set; }
 
-    public bool IsRunning => Hwnd != IntPtr.Zero && process is { HasExited: false } && IsWindow(Hwnd);
+    public bool IsRunning
+    {
+        get
+        {
+            // Read from the UI, pipe and timer threads while Stop() may be disposing the process.
+            try
+            {
+                return Hwnd != IntPtr.Zero && process is { HasExited: false } && IsWindow(Hwnd);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+            {
+                return false;
+            }
+        }
+    }
 
     public CdpPage Page => page is { IsOpen: true }
         ? page
-        : throw new InvalidOperationException("Lost connection to Brave. Use /viewinff start.");
+        : throw new InvalidOperationException("Lost connection to Brave. Use /viewin start.");
 
     public static string? FindBrave()
     {
@@ -97,7 +111,7 @@ internal sealed class ManagedBrowser : IDisposable
 
         Stop();
         var exe = FindBrave()
-            ?? throw new InvalidOperationException("Brave is not installed. High Performance mode needs Brave (brave.com).");
+            ?? throw new InvalidOperationException("ViewInFFXIV needs the Brave browser. Install it from brave.com, then try again.");
 
         var firstRun = !Directory.Exists(Path.Combine(profileDir, "Default"));
         Directory.CreateDirectory(profileDir);

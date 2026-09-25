@@ -21,6 +21,7 @@ internal sealed class CdpPage : IDisposable
     private readonly CancellationTokenSource cts = new();
     private readonly Dictionary<string, int> frameContexts = new();
     private int nextId;
+    private volatile bool closed;
 
     private CdpPage(ClientWebSocket socket)
     {
@@ -28,7 +29,7 @@ internal sealed class CdpPage : IDisposable
         _ = Task.Run(ReceiveLoopAsync);
     }
 
-    public bool IsOpen => socket.State == WebSocketState.Open;
+    public bool IsOpen => !closed && socket.State == WebSocketState.Open;
 
     /// <summary>URL of the target this client is attached to.</summary>
     public string Url { get; private init; } = "";
@@ -93,28 +94,39 @@ internal sealed class CdpPage : IDisposable
 
     public async Task<JsonElement> SendAsync(string method, object? parameters, CancellationToken ct)
     {
+        if (!IsOpen)
+            throw new InvalidOperationException("Lost connection to Brave.");
+
         var id = Interlocked.Increment(ref nextId);
         var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
         pending[id] = tcs;
-        var payload = JsonSerializer.SerializeToUtf8Bytes(new { id, method, @params = parameters ?? new { } }, JsonOptions);
-        await sendLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await socket.SendAsync(payload, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+            var payload = JsonSerializer.SerializeToUtf8Bytes(new { id, method, @params = parameters ?? new { } }, JsonOptions);
+            await sendLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await socket.SendAsync(payload, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                sendLock.Release();
+            }
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            await using (timeout.Token.Register(() => tcs.TrySetCanceled()))
+            {
+                var reply = await tcs.Task.ConfigureAwait(false);
+                if (reply.TryGetProperty("error", out var error))
+                    throw new InvalidOperationException($"{method}: {error.GetProperty("message").GetString()}");
+                return reply.TryGetProperty("result", out var result) ? result : default;
+            }
         }
         finally
         {
-            sendLock.Release();
-        }
-
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromSeconds(15));
-        await using (timeout.Token.Register(() => tcs.TrySetCanceled()))
-        {
-            var reply = await tcs.Task.ConfigureAwait(false);
-            if (reply.TryGetProperty("error", out var error))
-                throw new InvalidOperationException($"{method}: {error.GetProperty("message").GetString()}");
-            return reply.TryGetProperty("result", out var result) ? result : default;
+            // Replies that never came (timeout, lost connection) must not pile up.
+            pending.TryRemove(id, out _);
         }
     }
 
@@ -208,13 +220,21 @@ internal sealed class CdpPage : IDisposable
                 if (!result.EndOfMessage)
                     continue;
 
-                using var doc = JsonDocument.Parse(message.ToArray());
-                message.SetLength(0);
-                if (doc.RootElement.TryGetProperty("id", out var idProp)
-                    && pending.TryRemove(idProp.GetInt32(), out var tcs))
+                try
                 {
-                    tcs.TrySetResult(doc.RootElement.Clone());
+                    using var doc = JsonDocument.Parse(message.ToArray());
+                    if (doc.RootElement.TryGetProperty("id", out var idProp)
+                        && pending.TryRemove(idProp.GetInt32(), out var tcs))
+                    {
+                        tcs.TrySetResult(doc.RootElement.Clone());
+                    }
                 }
+                catch (JsonException)
+                {
+                    // one bad message must not take the connection down
+                }
+
+                message.SetLength(0);
             }
         }
         catch
@@ -222,6 +242,7 @@ internal sealed class CdpPage : IDisposable
             // socket closed or browser exited
         }
 
+        closed = true;
         foreach (var tcs in pending.Values)
             tcs.TrySetException(new InvalidOperationException("Lost connection to Brave."));
         pending.Clear();

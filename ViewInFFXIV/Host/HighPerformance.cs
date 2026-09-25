@@ -212,20 +212,19 @@ public sealed partial class HighPerformance
             lastRoomUrl = "";
         }
 
-        // First video of a Brave session: replace YouTube's defaults with your saved subtitle/volume choice.
-        // The helper then carries them over to each following video.
+        // First video of a Brave session: hand the helper your saved subtitle/volume choice. Always send it, even
+        // when YouTube currently agrees: YouTube may switch its own default captions on a moment later, and the
+        // helper only defends choices it has been given (it then re-applies them to every following video).
         if (!Active)
         {
             preferencesApplied = false;
         }
-        else if (!preferencesApplied && Playback is { } playback)
+        else if (!preferencesApplied && Playback != null)
         {
             preferencesApplied = true;
             var config = plugin.Configuration;
-            if (playback.Subtitles != config.SubtitlesOn)
-                plugin.Host.Send(HostCommand.Managed(ManagedOps.Control, PlaybackCommands.Subtitles(config.SubtitlesOn)));
-            if (playback.Volume != config.Volume)
-                plugin.Host.Send(HostCommand.Managed(ManagedOps.Control, PlaybackCommands.Volume(config.Volume)));
+            plugin.Host.Send(HostCommand.Managed(ManagedOps.Control, PlaybackCommands.Subtitles(config.SubtitlesOn)));
+            plugin.Host.Send(HostCommand.Managed(ManagedOps.Control, PlaybackCommands.Volume(config.Volume)));
         }
 
         if (status.Error != lastError)

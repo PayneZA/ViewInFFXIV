@@ -59,6 +59,9 @@ public sealed class SharedVideo : IDisposable
 
     public ulong Frames { get; private set; }
 
+    /// <summary>Why the helper's video could not be opened, if it could not.</summary>
+    public string? Error { get; private set; }
+
     /// <summary>Call once per Draw with the helper's current shared texture name ("" when not capturing).</summary>
     public void Update(string sharedName)
     {
@@ -90,8 +93,17 @@ public sealed class SharedVideo : IDisposable
                 return;
             }
 
-            context.CopyResource(shared, local);
-            mutex.Release(WriterKey);
+            try
+            {
+                context.CopySubresourceRegion(shared, 0, null, local, 0);
+            }
+            finally
+            {
+                // Always hand the texture back, or the helper can never write another frame.
+                mutex.Release(WriterKey);
+            }
+
+            context.GenerateMips(view);
             Frames++;
             TickFps();
         }
@@ -106,6 +118,7 @@ public sealed class SharedVideo : IDisposable
     {
         Close();
         openName = name;
+        Error = null;
         if (name.Length == 0)
             return;
 
@@ -114,8 +127,10 @@ public sealed class SharedVideo : IDisposable
             shared = device1.OpenSharedResource1<Texture2D>(name, SharedResourceFlags.Read | SharedResourceFlags.Write);
             mutex = shared.QueryInterface<KeyedMutex>();
             var desc = shared.Description;
-            desc.OptionFlags = ResourceOptionFlags.None;
-            desc.BindFlags = BindFlags.ShaderResource;
+            // Full mip chain: without it the video shimmers (subtitles, grass) when the screen is small on screen.
+            desc.MipLevels = 0;
+            desc.OptionFlags = ResourceOptionFlags.GenerateMipMaps;
+            desc.BindFlags = BindFlags.ShaderResource | BindFlags.RenderTarget;
             local = new Texture2D(device, desc);
             view = new ShaderResourceView(device, local);
             Width = desc.Width;
@@ -126,6 +141,7 @@ public sealed class SharedVideo : IDisposable
         {
             log.Warning(ex, "Could not open the helper's video texture {Name}", name);
             Close();
+            Error = $"The game could not open the video from the helper ({ex.Message}).";
             openName = name; // do not retry every frame; a new name comes with a new texture
         }
     }

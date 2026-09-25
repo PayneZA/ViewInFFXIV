@@ -20,7 +20,7 @@ public sealed class HostCommand
     public static HostCommand Managed(string op, string? arg = null, string? arg2 = null) => new() { Op = op, Arg = arg, Arg2 = arg2 };
 }
 
-/// <summary>High Performance mode (/viewinff): the helper launches and drives its own off-screen Brave.</summary>
+/// <summary>Watch-party commands: the helper launches and drives its own off-screen Brave.</summary>
 public static class ManagedOps
 {
     /// <summary>Arg = browser profile folder, Arg2 = the game's GPU adapter LUID (decimal).</summary>

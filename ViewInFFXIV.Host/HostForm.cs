@@ -15,6 +15,7 @@ internal sealed class HostForm : Form
     private readonly System.Windows.Forms.Timer guardTimer = new();
     private readonly System.Threading.Timer pageTimer;
     private readonly int parentPid;
+    private Process? parent;
     private GpuCapture? capture;
     private long adapterLuid;
     private string? lastError;
@@ -76,14 +77,18 @@ internal sealed class HostForm : Form
 
         try
         {
-            var parent = Process.GetProcessById(parentPid);
-            parent.EnableRaisingEvents = true;
+            parent = Process.GetProcessById(parentPid);
             parent.Exited += (_, _) => BeginInvoke(Quit);
+            parent.EnableRaisingEvents = true;
         }
         catch (ArgumentException)
         {
             // the game is already gone
             Quit();
+        }
+        catch (Exception)
+        {
+            // Not allowed to watch the game process (e.g. it runs elevated); the plugin still stops us on unload.
         }
     }
 
@@ -255,7 +260,9 @@ internal sealed class HostForm : Form
             capture ??= new GpuCapture(adapterLuid);
             if (capture.Window != managed.Hwnd)
                 capture.Start(managed.Hwnd);
-            lastError = null;
+            lastError = capture.AdapterMatched
+                ? null
+                : "Could not find the game's graphics card, so the screen may stay black. Check that FFXIV and Brave use the same GPU.";
         }
         catch (Exception ex)
         {
@@ -291,6 +298,7 @@ internal sealed class HostForm : Form
             guardTimer.Stop();
             guardTimer.Dispose();
             pageTimer.Dispose();
+            parent?.Dispose();
             youtube.Dispose();
             capture?.Dispose();
             managed.Dispose();

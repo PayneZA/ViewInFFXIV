@@ -167,18 +167,13 @@ public sealed class Plugin : IDalamudPlugin
         if (!ShouldHidePluginWindows())
             WindowSystem.Draw();
 
-        Renderer.Draw(video?.Handle);
+        Renderer.Draw(video?.Handle, IsGameUiHidden());
     }
 
-    private bool ShouldHidePluginWindows()
-    {
-        if (!Configuration.KeepScreenWhenUiHidden)
-            return false;
+    private bool ShouldHidePluginWindows() => Configuration.KeepScreenWhenUiHidden && IsGameUiHidden();
 
-        return GameGui.GameUiHidden
-            || ClientState.IsGPosing
-            || PluginInterface.UiBuilder.CutsceneActive;
-    }
+    private static bool IsGameUiHidden() =>
+        GameGui.GameUiHidden || ClientState.IsGPosing || PluginInterface.UiBuilder.CutsceneActive;
 
     private void OnCommand(string command, string args)
     {

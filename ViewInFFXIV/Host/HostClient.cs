@@ -18,13 +18,20 @@ public sealed class HostClient : IDisposable
     private readonly CancellationTokenSource ipcCts = new();
     private readonly Task ipcLoop;
     private volatile Process? process;
+    private volatile bool connected;
     private DateTime lastLaunchUtc = DateTime.MinValue;
     private bool disposed;
 
     /// <summary>Latest status from the helper. Replaced (never mutated) by the IPC thread.</summary>
     public HostStatus Status { get; private set; } = new();
 
-    public bool HelperAlive
+    /// <summary>
+    /// Our helper process is running, or we are talking to one. A helper that was already running for this user
+    /// (the new one exits at once, it allows one per user) is used instead of relaunching every few seconds.
+    /// </summary>
+    public bool HelperAlive => connected || ProcessAlive;
+
+    private bool ProcessAlive
     {
         get
         {
@@ -71,29 +78,44 @@ public sealed class HostClient : IDisposable
         EnsureProcess();
     }
 
-    public void StopHost()
+    /// <summary>Closes the helper (and its Brave). Does not block the game; waits only when the plugin unloads.</summary>
+    public void StopHost() => StopHost(wait: false);
+
+    private void StopHost(bool wait)
     {
         HostEnabled = false;
         var p = process;
-        if (p != null && HelperAlive)
+        process = null;
+        if (p != null || connected)
         {
-            // Ask politely so the helper closes its Brave cleanly, then make sure it is gone.
+            // Ask politely so the helper closes its Brave cleanly; the IPC thread delivers it.
             outbound.Clear();
             Send(HostCommand.Quit());
+        }
+
+        Status = new HostStatus();
+        if (p == null)
+            return;
+
+        void Finish()
+        {
             try
             {
-                if (!p.WaitForExit(1500))
+                if (!p.WaitForExit(3000))
                     p.Kill(entireProcessTree: true);
             }
             catch
             {
-                // ignored
+                // already gone
             }
+
+            p.Dispose();
         }
 
-        process = null;
-        p?.Dispose();
-        Status = new HostStatus();
+        if (wait)
+            Finish();
+        else
+            _ = Task.Run(Finish);
     }
 
     private void EnsureProcess()
@@ -161,20 +183,29 @@ public sealed class HostClient : IDisposable
         {
             try
             {
-                if (!HelperAlive)
-                {
-                    Drop();
-                    await Task.Delay(250, ct).ConfigureAwait(false);
-                    continue;
-                }
-
+                // Talk to a helper while one is wanted (or ours is running); after Stop, only until the quit is out.
+                var wanted = HostEnabled || ProcessAlive;
                 if (pipe is not { IsConnected: true })
                 {
+                    connected = false;
                     Drop();
+                    if (!wanted)
+                    {
+                        await Task.Delay(250, ct).ConfigureAwait(false);
+                        continue;
+                    }
+
                     pipe = new NamedPipeClientStream(".", IpcConstants.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
                     await pipe.ConnectAsync(1000, ct).ConfigureAwait(false);
                     writer = new StreamWriter(pipe, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true) { AutoFlush = true };
                     reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true);
+                    connected = true;
+                }
+                else if (!wanted && outbound.IsEmpty)
+                {
+                    connected = false;
+                    Drop();
+                    continue;
                 }
 
                 // Commands go out immediately; otherwise poll the status a few times a second.
@@ -195,7 +226,7 @@ public sealed class HostClient : IDisposable
                     continue;
                 }
 
-                if (JsonSerializer.Deserialize<HostStatus>(line) is { } status && HelperAlive)
+                if (JsonSerializer.Deserialize<HostStatus>(line) is { } status && HostEnabled)
                     Status = status;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -205,6 +236,7 @@ public sealed class HostClient : IDisposable
             catch (Exception ex)
             {
                 log.Debug(ex, "ViewInFFXIV IPC failed; reconnecting");
+                connected = false;
                 Drop();
                 try
                 {
@@ -217,6 +249,7 @@ public sealed class HostClient : IDisposable
             }
         }
 
+        connected = false;
         Drop();
     }
 
@@ -244,7 +277,12 @@ public sealed class HostClient : IDisposable
             return;
 
         disposed = true;
-        StopHost();
+        StopHost(wait: true);
+
+        // Give the IPC thread a moment to deliver the quit to a helper we did not start ourselves.
+        for (var i = 0; i < 10 && connected && !outbound.IsEmpty; i++)
+            Thread.Sleep(50);
+
         ipcCts.Cancel();
         try
         {

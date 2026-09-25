@@ -64,6 +64,15 @@ public sealed class RemoteWindow : Window, IDisposable
 
         ImGui.TextDisabled("Scroll Lock, cutscenes, and GPose.");
 
+        var behindUi = config.DrawBehindGameUi;
+        if (ImGui.Checkbox("Draw behind game UI", ref behindUi))
+        {
+            config.DrawBehindGameUi = behindUi;
+            config.Save();
+        }
+
+        ImGui.TextDisabled("Chat bubbles, name plates and the HUD stay on top of the screen.");
+
         var distance = config.PlaceDistance;
         if (LiveSlider("Distance", ref distance, PlacementLimits.MinDistance, PlacementLimits.MaxDistance))
         {

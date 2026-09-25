@@ -34,6 +34,7 @@ internal sealed class YouTubeControl : IDisposable
     private readonly SemaphoreSlim gate = new(1, 1);
     private CdpPage? player;
     private string videoId = "";
+    private DateTime videoStartedUtc;
 
     // What the user picked, re-applied whenever the next video loads (null = leave YouTube's default).
     private bool? wantSubtitles;
@@ -158,6 +159,7 @@ internal sealed class YouTubeControl : IDisposable
         {
             // New video: YouTube forgets caption choices per video, so put them back.
             videoId = id;
+            videoStartedUtc = DateTime.UtcNow;
             if (await ReapplyAsync().ConfigureAwait(false))
             {
                 // Re-applying may have used up this poll's time budget; read the new state on a fresh one.
@@ -181,6 +183,24 @@ internal sealed class YouTubeControl : IDisposable
         }
 
         var status = v.Deserialize<PlaybackStatus>() ?? new PlaybackStatus();
+
+        // YouTube can switch its own default captions on a few seconds into a video, after the choice above
+        // was applied. Keep insisting on the user's choice for a little while.
+        if (wantSubtitles is { } want && status.Subtitles != want && !(want && id == noSubtitlesVideo)
+            && DateTime.UtcNow - videoStartedUtc < TimeSpan.FromSeconds(15))
+        {
+            try
+            {
+                using var fresh = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                if (!await RunAsync(SubtitlesScript(want), fresh.Token).ConfigureAwait(false) && want)
+                    noSubtitlesVideo = id;
+                status.Subtitles = want && id != noSubtitlesVideo;
+            }
+            catch
+            {
+                // try again on the next poll
+            }
+        }
         // 1 = playing, 3 = buffering; everything else (paused, ended, cued, unstarted) shows as paused.
         status.Paused = v.GetProperty("state").GetInt32() is not (1 or 3);
         // The track list only fills once YouTube's caption module loads, so assume subtitles exist
