@@ -90,7 +90,11 @@ jobs:
             'Overlay.dll',
             'Host/ViewInFFXIV.Host.exe',
             'Host/ViewInFFXIV.Host.dll',
-            'Host/ViewInFFXIV.Host.runtimeconfig.json'
+            'Host/ViewInFFXIV.Host.runtimeconfig.json',
+            'Host/SharpDX.Direct3D11.dll',
+            'Host/SharpDX.DXGI.dll',
+            'Host/WinRT.Runtime.dll',
+            'Host/Microsoft.Windows.SDK.NET.dll'
           )
           foreach ($name in $required) {
             if ($names -notcontains $name) {
