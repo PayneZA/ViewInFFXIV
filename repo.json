@@ -5,8 +5,8 @@
     "Punchline": "Watch w2g together on a wall in your house.",
     "Description": "Runs a w2g (Watch2Gether) room in its own hidden Brave browser and puts the video on a 16:9 screen in your house at 1080p. Create or join rooms from in game, with play/pause/seek and English subtitles. Requires Windows 10/11 and the Brave browser (brave.com). Open with /viewin.",
     "InternalName": "ViewInFFXIV",
-    "AssemblyVersion": "1.1.4.0",
-    "TestingAssemblyVersion": "1.1.4.0",
+    "AssemblyVersion": "1.2.0.0",
+    "TestingAssemblyVersion": "1.2.0.0",
     "RepoUrl": "https://github.com/PayneZA/ViewInFFXIV",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -18,9 +18,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v1.1.4.0/latest.zip",
-    "DownloadLinkTesting": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v1.1.4.0/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v1.1.4.0/latest.zip",
-    "LastUpdate": "1789321682"
+    "DownloadLinkInstall": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v1.2.0.0/latest.zip",
+    "DownloadLinkTesting": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v1.2.0.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v1.2.0.0/latest.zip",
+    "LastUpdate": "1790353672"
   }
 ]
