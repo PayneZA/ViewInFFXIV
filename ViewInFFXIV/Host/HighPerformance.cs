@@ -90,7 +90,12 @@ public sealed partial class HighPerformance
     public void StartParty()
     {
         var config = plugin.Configuration;
-        if (!plugin.Renderer.WillDraw)
+        if (config.ScreenMode == ScreenMode.OnUi)
+        {
+            config.UiScreenShown = true;
+            config.Save();
+        }
+        else if (!plugin.Renderer.WillDraw)
         {
             if (config.ScreenTerritory == Plugin.ClientState.TerritoryType && config.HasAnchor)
             {

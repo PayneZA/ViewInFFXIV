@@ -62,8 +62,8 @@ public sealed unsafe class ScreenRenderer : IDisposable
         Basic,
     }
 
-    /// <summary>The screen is switched on and placed in the current zone.</summary>
-    public bool WillDraw => config.ScreenEnabled && config.ScreenTerritory == client.TerritoryType;
+    /// <summary>The screen is in game, switched on and placed in the current zone.</summary>
+    public bool WillDraw => config.ScreenMode == ScreenMode.InGame && config.ScreenEnabled && config.ScreenTerritory == client.TerritoryType;
 
     /// <summary>How the screen was shown on the last frame.</summary>
     public Tier Active { get; private set; }

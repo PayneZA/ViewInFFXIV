@@ -56,6 +56,13 @@ public sealed class TerritoryPresets
     public List<PlacementPreset> Presets { get; set; } = [];
 }
 
+/// <summary>Where the TV is: on a wall in the world, or a picture on your own UI.</summary>
+public enum ScreenMode
+{
+    InGame,
+    OnUi,
+}
+
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
@@ -64,6 +71,15 @@ public sealed class Configuration : IPluginConfiguration
     public List<TerritoryPresets> SavedPlacements { get; set; } = [];
 
     public bool ScreenEnabled { get; set; }
+
+    /// <summary>In game (a wall, to watch with people in the room) or on your UI (goes wherever you go).</summary>
+    public ScreenMode ScreenMode { get; set; } = ScreenMode.InGame;
+
+    /// <summary>On UI: the screen is shown. Separate from <see cref="ScreenEnabled"/>, which follows the zone's spot.</summary>
+    public bool UiScreenShown { get; set; } = true;
+
+    /// <summary>On UI: the screen cannot be moved or resized.</summary>
+    public bool UiScreenLocked { get; set; }
 
     public bool KeepScreenWhenUiHidden { get; set; }
 

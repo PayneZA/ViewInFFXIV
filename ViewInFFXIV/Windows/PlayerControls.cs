@@ -6,7 +6,7 @@ using ViewInFFXIV.Shared;
 
 namespace ViewInFFXIV.Windows;
 
-/// <summary>Seek bar and transport buttons, shared by the main window and the controls on the TV.</summary>
+/// <summary>Seek bar and transport buttons, shared by the main window and the screen on your UI.</summary>
 internal sealed class PlayerControls
 {
     private readonly Plugin plugin;
@@ -28,17 +28,7 @@ internal sealed class PlayerControls
 
     public void DrawSeek(PlaybackStatus playback, float width)
     {
-        var duration = Math.Max(1, playback.Duration);
-        var fraction = (float)(playback.Position / duration);
-        if (Ui.SeekBar("##seek", fraction, width, ref seekDrag, out var hover))
-        {
-            plugin.HighPerformance.Control(PlaybackCommands.Seek(seekDrag!.Value * duration));
-            seekDrag = null;
-        }
-
-        if (hover is { } h)
-            ImGui.SetTooltip(WatchQueue.Clock(h * duration));
-
+        var duration = SeekBar(playback, width);
         var shown = seekDrag is { } d ? d * duration : playback.Position;
         var start = ImGui.GetCursorPosX();
         Ui.Dim(WatchQueue.Clock(shown));
@@ -120,6 +110,34 @@ internal sealed class PlayerControls
         }
 
         ImGui.SetCursorPosY(y + big + ImGui.GetStyle().ItemSpacing.Y);
+    }
+
+    /// <summary>Play/pause and the seek bar on one line, for the screen on your UI.</summary>
+    public void DrawMini(PlaybackStatus playback, float width)
+    {
+        const float button = 28f;
+        var y = ImGui.GetCursorPosY();
+        if (Ui.RoundIconButton("##miniplay", playback.Paused ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause, button, accent: true, tooltip: playback.Paused ? "Play for everyone" : "Pause for everyone"))
+            plugin.HighPerformance.Control(playback.Paused ? "play" : "pause");
+        ImGui.SameLine();
+        ImGui.SetCursorPosY(y + ((button - 18f) / 2));
+        SeekBar(playback, MathF.Max(20, width - button - ImGui.GetStyle().ItemSpacing.X));
+    }
+
+    /// <summary>The seek bar with its time tooltip; seeks for everyone on release. Returns the duration used.</summary>
+    private double SeekBar(PlaybackStatus playback, float width)
+    {
+        var duration = Math.Max(1, playback.Duration);
+        var fraction = (float)(playback.Position / duration);
+        if (Ui.SeekBar("##seek", fraction, width, ref seekDrag, out var hover))
+        {
+            plugin.HighPerformance.Control(PlaybackCommands.Seek(seekDrag!.Value * duration));
+            seekDrag = null;
+        }
+
+        if (hover is { } h)
+            ImGui.SetTooltip(WatchQueue.Clock(h * duration));
+        return duration;
     }
 
     private void SetVolume(int volume)

@@ -29,12 +29,14 @@ Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), 
 
 - **Watch** — the live picture, controls, *Search YouTube or paste a link*, results with thumbnails, **Up next**
   (the next one starts when a video ends) and **Recent**.
-- **Screen** — place the TV, fine-tune distance / height / size / turn / tilt, saved spots (lounge, bedroom, …) and
+- **Screen** — choose where the TV is: **In game** (on a wall, to watch with the people in the room) or **On UI**
+  (a picture on your own screen that goes wherever you go; drag to move, hover for play/pause and the seek bar).
+  In game: place the TV, fine-tune distance / height / size / turn / tilt, saved spots (lounge, bedroom, …) and
   spot codes. Spots belong to the house they were made in, and each house brings back the spot you last used there.
 - **Settings** — subtitles, Up next, sound, screen behaviour, the browser, diagnostics.
 
 **Sound from the screen** — it gets quieter as you walk away, pans left/right with the camera and goes silent when you
-leave the screen's zone (Settings → Sound).
+leave the screen's zone (Settings → Sound). With the screen on your UI it plays at your own volume.
 
 ## Commands
 
@@ -50,6 +52,7 @@ Everything is in the window; these are for macros and chat.
 | `/viewin cc [on\|off]` / `vol 0-100` | Subtitles and volume — just for you |
 | `/viewin invite` / `show` / `hide` | Copy the invite / show or hide the browser (w2g's own playlist and chat) |
 | `/viewin place` / `screen` / `apply <code>` | Put the screen in front of you / open the Screen tab / use a spot code |
+| `/viewin mode [game\|ui]` | Put the TV in game or on your UI (no argument: switch) |
 | `/viewin browser auto\|brave\|chrome\|edge` | Pick the browser (switches a running party over) |
 | `/viewin stop` | Leave the party and close the browser |
 | `/viewin bench` | 25-second performance check, results in chat |

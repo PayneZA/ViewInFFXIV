@@ -6,7 +6,7 @@ using ViewInFFXIV.World;
 
 namespace ViewInFFXIV.Windows;
 
-/// <summary>The Screen tab: put the TV on your wall, fine-tune it, keep spots per room and share them.</summary>
+/// <summary>The Screen tab: in game or on your UI; put the TV on your wall, fine-tune it, keep spots per room and share them.</summary>
 internal sealed class ScreenTab
 {
     private readonly Plugin plugin;
@@ -26,10 +26,88 @@ internal sealed class ScreenTab
 
     public void Draw()
     {
+        DrawMode();
+        if (Config.ScreenMode == ScreenMode.OnUi)
+        {
+            DrawUiScreen();
+            return;
+        }
+
         DrawPlacement();
         DrawSpots();
         DrawFineTune();
         DrawShare();
+    }
+
+    private void DrawMode()
+    {
+        Ui.Card("mode", width =>
+        {
+            ImGui.TextUnformatted("Where's the TV?");
+            var half = (width - 8) / 2;
+            ModeButton(ScreenMode.InGame, FontAwesomeIcon.Home, "In game", half);
+            ImGui.SameLine();
+            ModeButton(ScreenMode.OnUi, FontAwesomeIcon.Desktop, "On UI", half);
+            Ui.Dim(Config.ScreenMode == ScreenMode.InGame
+                ? "On a wall in the world, to watch together with the people in the room."
+                : "A picture on your own screen that goes wherever you go. Only you see it here; friends keep their own.");
+        });
+    }
+
+    private void ModeButton(ScreenMode mode, FontAwesomeIcon icon, string label, float width)
+    {
+        string text;
+        using (Plugin.PluginInterface.UiBuilder.IconFontHandle.Push())
+            text = icon.ToIconString();
+        var selected = Config.ScreenMode == mode;
+        var size = new Vector2(width, 34);
+        var pos = ImGui.GetCursorScreenPos();
+        var pressed = selected ? Ui.AccentButton($"##mode{mode}", size) : ImGui.Button($"##mode{mode}", size);
+
+        // Icon and label centred together on the button.
+        var dl = ImGui.GetWindowDrawList();
+        var iconSize = ImGui.GetFontSize();
+        var labelSize = ImGui.CalcTextSize(label);
+        var total = iconSize + 8 + labelSize.X;
+        var start = pos + new Vector2((width - total) / 2, 0);
+        var color = selected ? new Vector4(0.067f, 0.067f, 0.086f, 1f) : Ui.Text;
+        Ui.DrawIcon(dl, icon, start + new Vector2(iconSize / 2, size.Y / 2), iconSize, color);
+        dl.AddText(start + new Vector2(iconSize + 8, (size.Y - labelSize.Y) / 2), Ui.Col(color), label);
+
+        if (pressed && !selected)
+            plugin.SetScreenMode(mode);
+    }
+
+    private void DrawUiScreen()
+    {
+        Ui.Card("uiscreen", width =>
+        {
+            var shown = Config.UiScreenShown;
+            Ui.Pill(shown ? "● On your UI" : "Hidden", shown ? Ui.Good : Ui.TextDim);
+            ImGui.TextWrapped("Drag the picture to move it and an edge to resize it. Hover it for play/pause and the seek bar.");
+
+            var half = (width - 8) / 2;
+            if (Ui.AccentButton(shown ? "Hide screen" : "Show screen", new Vector2(half, 34)))
+            {
+                Config.UiScreenShown = !shown;
+                Config.Save();
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Reset size and position", new Vector2(half, 34)))
+            {
+                Config.UiScreenShown = true;
+                Config.Save();
+                plugin.UiScreen.ResetPlacement();
+            }
+
+            var locked = Config.UiScreenLocked;
+            if (ImGui.Checkbox("Lock in place", ref locked))
+            {
+                Config.UiScreenLocked = locked;
+                Config.Save();
+            }
+        });
     }
 
     private void DrawPlacement()

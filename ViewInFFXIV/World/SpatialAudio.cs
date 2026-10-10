@@ -52,7 +52,8 @@ public sealed class SpatialAudio
     private unsafe (float Gain, float Pan) Compute()
     {
         var config = plugin.Configuration;
-        if (!config.SpatialAudio)
+        // On your UI the screen has no place in the world: your own volume, centred.
+        if (!config.SpatialAudio || config.ScreenMode == ScreenMode.OnUi)
             return (1, 0);
 
         if (!plugin.Renderer.WillDraw)

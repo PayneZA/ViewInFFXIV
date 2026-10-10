@@ -658,6 +658,39 @@ public sealed partial class MainWindow : Window, IDisposable
 
     // ───────────────────────────── settings tab ─────────────────────────────
 
+    /// <summary>Settings that only apply to the screen on a wall.</summary>
+    private static void DrawWallSettings(Configuration config)
+    {
+        var behind = config.DrawBehindGameUi;
+        if (ImGui.Checkbox("Keep chat bubbles, name plates and the HUD on top of the screen", ref behind))
+        {
+            config.DrawBehindGameUi = behind;
+            config.Save();
+        }
+
+        if (config.DrawBehindGameUi)
+        {
+            ImGui.Indent();
+            var hideWorldUi = config.HideWorldUiOnScreen;
+            if (ImGui.Checkbox("Hide name plates and item markers over the screen", ref hideWorldUi))
+            {
+                config.HideWorldUiOnScreen = hideWorldUi;
+                config.Save();
+            }
+
+            Ui.Dim("Chat bubbles and the HUD stay on top either way.");
+            ImGui.Unindent();
+        }
+
+        var cover = config.ScreenCoverDepth * 100f;
+        ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - 220);
+        if (ImGui.SliderFloat("Covers furniture up to", ref cover, 0f, 100f, "%.0f cm in front of it"))
+            config.ScreenCoverDepth = cover / 100f;
+        if (ImGui.IsItemDeactivatedAfterEdit())
+            config.Save();
+        Ui.Dim("For a screen hung over furniture or set into a wall. People always pass in front of it.");
+    }
+
     private void DrawSettings()
     {
         var config = plugin.Configuration;
@@ -693,7 +726,9 @@ public sealed partial class MainWindow : Window, IDisposable
                 config.Save();
             }
 
-            Ui.Dim("Quieter as you walk away, left/right with the camera, silent once you leave the screen's zone.");
+            Ui.Dim(config.ScreenMode == ScreenMode.OnUi
+                ? "The screen is on your UI, so the sound plays at your own volume."
+                : "Quieter as you walk away, left/right with the camera, silent once you leave the screen's zone.");
             if (config.SpatialAudio)
             {
                 var range = config.HearingRange;
@@ -710,34 +745,8 @@ public sealed partial class MainWindow : Window, IDisposable
         Ui.Card("display", _ =>
         {
             ImGui.TextUnformatted("Screen");
-            var behind = config.DrawBehindGameUi;
-            if (ImGui.Checkbox("Keep chat bubbles, name plates and the HUD on top of the screen", ref behind))
-            {
-                config.DrawBehindGameUi = behind;
-                config.Save();
-            }
-
-            if (config.DrawBehindGameUi)
-            {
-                ImGui.Indent();
-                var hideWorldUi = config.HideWorldUiOnScreen;
-                if (ImGui.Checkbox("Hide name plates and item markers over the screen", ref hideWorldUi))
-                {
-                    config.HideWorldUiOnScreen = hideWorldUi;
-                    config.Save();
-                }
-
-                Ui.Dim("Chat bubbles and the HUD stay on top either way.");
-                ImGui.Unindent();
-            }
-
-            var cover = config.ScreenCoverDepth * 100f;
-            ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - 220);
-            if (ImGui.SliderFloat("Covers furniture up to", ref cover, 0f, 100f, "%.0f cm in front of it"))
-                config.ScreenCoverDepth = cover / 100f;
-            if (ImGui.IsItemDeactivatedAfterEdit())
-                config.Save();
-            Ui.Dim("For a screen hung over furniture or set into a wall. People always pass in front of it.");
+            if (config.ScreenMode == ScreenMode.InGame)
+                DrawWallSettings(config);
 
             var keep = config.KeepScreenWhenUiHidden;
             if (ImGui.Checkbox("Keep the screen when the game UI is hidden (Scroll Lock, cutscenes, GPose)", ref keep))

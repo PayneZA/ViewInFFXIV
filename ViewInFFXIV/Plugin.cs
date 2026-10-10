@@ -19,7 +19,7 @@ public sealed class Plugin : IDalamudPlugin
     private const string AliasCommandName = "/viewinff";
     private const string ChatPrefix = "ViewInFFXIV";
     private const string Usage =
-        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | apply <code> | stop | bench";
+        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | mode [game|ui] | apply <code> | stop | bench";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -36,6 +36,9 @@ public sealed class Plugin : IDalamudPlugin
     public Configuration Configuration { get; }
 
     public readonly WindowSystem WindowSystem = new("ViewInFFXIV");
+
+    /// <summary>The screen on your UI, apart from the other windows: it stays with the wall screen's hide rules.</summary>
+    private readonly WindowSystem screenWindows = new("ViewInFFXIVScreen");
 
     public HostClient Host { get; }
 
@@ -58,6 +61,11 @@ public sealed class Plugin : IDalamudPlugin
     public RenderTrace RenderTrace { get; } = new();
 
     public bool MainWindowOpen => mainWindow.IsOpen;
+
+    /// <summary>The screen is on your UI and shown.</summary>
+    public bool UiScreenShown => Configuration.ScreenMode == ScreenMode.OnUi && Configuration.UiScreenShown;
+
+    internal UiScreenWindow UiScreen { get; }
 
     /// <summary>The house you are in (0 outside houses), as of this framework tick.</summary>
     public ulong CurrentHouse => lastHouse;
@@ -95,6 +103,8 @@ public sealed class Plugin : IDalamudPlugin
 
         mainWindow = new MainWindow(this);
         WindowSystem.AddWindow(mainWindow);
+        UiScreen = new UiScreenWindow(this);
+        screenWindows.AddWindow(UiScreen);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand) { HelpMessage = $"Open ViewInFFXIV. {Usage}" });
         CommandManager.AddHandler(AliasCommandName, new CommandInfo(OnCommand) { HelpMessage = "Same as /viewin.", ShowInHelp = false });
@@ -125,6 +135,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleMainUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
         WindowSystem.RemoveAllWindows();
+        screenWindows.RemoveAllWindows();
         mainWindow.Dispose();
         Thumbnails.Dispose();
         RenderTrace.Dispose();
@@ -139,6 +150,15 @@ public sealed class Plugin : IDalamudPlugin
     public void ToggleMainUi() => mainWindow.Toggle();
 
     public void OpenScreenUi() => mainWindow.Open(MainWindow.Tab.Screen);
+
+    /// <summary>Moves the TV between the wall (in game) and your UI.</summary>
+    public void SetScreenMode(ScreenMode mode)
+    {
+        Configuration.ScreenMode = mode;
+        if (mode == ScreenMode.OnUi)
+            Configuration.UiScreenShown = true;
+        Configuration.Save();
+    }
 
     internal void ApplyUiHidePolicy()
     {
@@ -163,7 +183,9 @@ public sealed class Plugin : IDalamudPlugin
 
         Configuration.Save();
         var here = ClientState.TerritoryType == shared.ScreenTerritory && (sharedHouse == 0 || sharedHouse == CurrentHouse);
-        if (here)
+        if (Configuration.ScreenMode == ScreenMode.OnUi)
+            Notify.Info("Got your friend's screen spot", "Your screen is on your UI; switch to In game under Screen to see it on their wall.");
+        else if (here)
             Notify.Success("Screen placed where your friend has it");
         else if (sharedHouse != 0)
             Notify.Info("Got your friend's screen spot", $"It appears when you're in their house ({HouseLocator.Describe(sharedHouse)}).");
@@ -211,13 +233,15 @@ public sealed class Plugin : IDalamudPlugin
         // Pull the newest frame from the helper on the GPU (render thread, game's device context), but only
         // while something shows it: the wall screen in this zone, or the preview in the main window.
         var texture = Host.HelperAlive ? Host.Status.SharedTexture : "";
-        var wanted = Renderer.WillDraw || mainWindow.IsOpen;
+        var wanted = Renderer.WillDraw || UiScreenShown || mainWindow.IsOpen;
         if (wanted && !Benchmark.SkipVideo && (texture.Length > 0 || video != null))
             Video.Update(texture);
         Benchmark.VideoDone();
 
         if (!ShouldHidePluginWindows())
             WindowSystem.Draw();
+        UiScreen.IsOpen = UiScreenShown;
+        screenWindows.Draw();
 
         if (Benchmark.SkipRender)
             Renderer.Hide();
@@ -306,11 +330,23 @@ public sealed class Plugin : IDalamudPlugin
                 HighPerformance.SendName();
                 break;
             case "place":
+                if (Configuration.ScreenMode == ScreenMode.OnUi)
+                    SetScreenMode(ScreenMode.InGame);
                 Placement.PlaceInFront(ClientState, ObjectTable, Configuration, CurrentHouse);
                 Notify.Success("Screen placed in front of you");
                 break;
             case "screen":
                 OpenScreenUi();
+                break;
+            case "mode":
+                var mode = rest.ToLowerInvariant() switch
+                {
+                    "game" or "world" or "wall" => ScreenMode.InGame,
+                    "ui" => ScreenMode.OnUi,
+                    _ => Configuration.ScreenMode == ScreenMode.InGame ? ScreenMode.OnUi : ScreenMode.InGame,
+                };
+                SetScreenMode(mode);
+                Notify.Info(mode == ScreenMode.OnUi ? "Screen on your UI" : "Screen in game");
                 break;
             case "browser":
                 SetBrowser(rest.ToLowerInvariant());
