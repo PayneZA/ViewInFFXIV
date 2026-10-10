@@ -11,8 +11,12 @@ namespace ViewInFFXIV.Host;
 
 public sealed class HostClient : IDisposable
 {
+    private const string CrashDumpPattern = "Host-crash-*.dmp";
+    private const int CrashDumpsKept = 3;
+
     private readonly IPluginLog log;
     private readonly string hostExe;
+    private readonly string dumpDirectory;
     private readonly ConcurrentQueue<HostCommand> outbound = new();
     private readonly SemaphoreSlim wake = new(0);
     private readonly CancellationTokenSource ipcCts = new();
@@ -49,9 +53,24 @@ public sealed class HostClient : IDisposable
 
     public bool HostEnabled { get; private set; }
 
-    public HostClient(IPluginLog log, string assemblyDirectory)
+    /// <summary>
+    /// Our helper died on its own (it was not stopped), which ends the party. True until <see cref="TakeCrash"/>.
+    /// </summary>
+    public bool Crashed { get; private set; }
+
+    /// <summary>Returns <see cref="Crashed"/> once and clears it.</summary>
+    public bool TakeCrash()
+    {
+        var crashed = Crashed;
+        Crashed = false;
+        return crashed;
+    }
+
+    /// <param name="dumpDirectory">Where .NET writes a dump if the helper crashes.</param>
+    public HostClient(IPluginLog log, string assemblyDirectory, string dumpDirectory)
     {
         this.log = log;
+        this.dumpDirectory = dumpDirectory;
         var nested = Path.Combine(assemblyDirectory, "Host", "ViewInFFXIV.Host.exe");
         var beside = Path.Combine(assemblyDirectory, "ViewInFFXIV.Host.exe");
         hostExe = File.Exists(nested) ? nested : beside;
@@ -125,6 +144,20 @@ public sealed class HostClient : IDisposable
             return;
         if (HelperAlive)
             return;
+
+        // Stop() forgets the process first, so one that exited with an error code while still ours crashed.
+        // Starting a new, empty helper would quietly drop everyone out of the party: report it instead.
+        if (process is { } gone && ExitCode(gone) is { } code and not 0)
+        {
+            process = null;
+            gone.Dispose();
+            HostEnabled = false;
+            Status = new HostStatus();
+            Crashed = true;
+            log.Warning("ViewInFFXIV.Host stopped unexpectedly (exit code 0x{Code:X8}). {Dump}", code, KeepNewestDumps() is { } dump ? $"Crash dump: {dump}" : "No crash dump was written.");
+            return;
+        }
+
         if (!File.Exists(hostExe))
         {
             Status = new HostStatus { Error = $"ViewInFFXIV.Host.exe not found at {hostExe}" };
@@ -151,6 +184,11 @@ public sealed class HostClient : IDisposable
             // Run the helper on the .NET that XIVLauncher already ships, so nobody has to install .NET.
             if (DalamudDotnetRoot() is { } root)
                 start.Environment["DOTNET_ROOT"] = root;
+
+            // If the helper crashes, .NET writes a small dump (threads and stacks) that shows where.
+            start.Environment["DOTNET_DbgEnableMiniDump"] = "1";
+            start.Environment["DOTNET_DbgMiniDumpType"] = "1";
+            start.Environment["DOTNET_DbgMiniDumpName"] = Path.Combine(dumpDirectory, CrashDumpPattern.Replace("*", "%p"));
 
             process = Process.Start(start);
             lastLaunchUtc = DateTime.UtcNow;
@@ -270,6 +308,35 @@ public sealed class HostClient : IDisposable
 
         connected = false;
         Drop();
+    }
+
+    private static int? ExitCode(Process p)
+    {
+        try
+        {
+            return p.HasExited ? p.ExitCode : null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Deletes all but the newest few crash dumps; returns the newest one's path, if any.</summary>
+    private string? KeepNewestDumps()
+    {
+        try
+        {
+            var dumps = new DirectoryInfo(dumpDirectory).GetFiles(CrashDumpPattern).OrderByDescending(f => f.LastWriteTimeUtc).ToList();
+            foreach (var old in dumps.Skip(CrashDumpsKept))
+                old.Delete();
+            return dumps.FirstOrDefault()?.FullName;
+        }
+        catch (Exception ex)
+        {
+            log.Debug(ex, "Could not tidy the helper crash dumps");
+            return null;
+        }
     }
 
     private bool IsStale(HostStatus status)

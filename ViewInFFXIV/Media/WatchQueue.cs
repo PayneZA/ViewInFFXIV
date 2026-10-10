@@ -21,11 +21,27 @@ public sealed class WatchQueue
     public WatchQueue(Plugin plugin)
     {
         this.plugin = plugin;
+
+        // Older versions recorded w2g's sample video, which every new room starts with.
+        if (History.RemoveAll(v => PlaybackStatus.IsW2gSample(v.Id, v.Title, v.Channel)) > 0)
+            plugin.Configuration.Save();
     }
 
     public List<VideoInfo> UpNext => plugin.Configuration.UpNext;
 
     public List<VideoInfo> History => plugin.Configuration.History;
+
+    public List<VideoInfo> Favourites => plugin.Configuration.Favourites;
+
+    public bool IsFavourite(string videoId) => Favourites.Exists(v => v.Id == videoId);
+
+    /// <summary>Stars a video (it goes first in Favourites) or takes the star off again.</summary>
+    public void ToggleFavourite(VideoInfo video)
+    {
+        if (Favourites.RemoveAll(v => v.Id == video.Id) == 0)
+            Favourites.Insert(0, video);
+        plugin.Configuration.Save();
+    }
 
     /// <summary>Plays the video for everyone, unless YouTube does not let it play in a watch party.</summary>
     public void PlayNow(VideoInfo video) => Start(video, fromUpNext: false);
@@ -44,15 +60,15 @@ public sealed class WatchQueue
         if (result.State is Playability.State.Blocked or Playability.State.Gone)
         {
             // Sending it would put w2g's error page on everyone's wall and stop what they are watching.
-            var name = video.Title.Length > 0 ? $"\"{video.Title}\"" : "this video";
+            var why = video.Title.Length > 0 ? $"\"{video.Title}\": {Playability.Reason(result.State)}" : Playability.Reason(result.State);
             if (fromUpNext)
             {
-                Notify.Warning($"Skipped {name}", Playability.Reason(result.State));
+                Notify.Warning("Skipped a video in Up next", why);
                 Next();
             }
             else
             {
-                Notify.Warning(video.Title.Length > 0 ? video.Title : "This video", Playability.Reason(result.State));
+                Notify.Warning("That video can't play here", why);
             }
 
             return;

@@ -90,7 +90,7 @@ public sealed class Plugin : IDalamudPlugin
         if (lastTerritoryType != 0)
             PlacementPresets.LoadActivePreset(Configuration, lastTerritoryType, lastHouse);
 
-        Host = new HostClient(Log, PluginInterface.AssemblyLocation.DirectoryName ?? AppContext.BaseDirectory);
+        Host = new HostClient(Log, PluginInterface.AssemblyLocation.DirectoryName ?? AppContext.BaseDirectory, PluginInterface.GetPluginConfigDirectory());
 
         Renderer = new ScreenRenderer(Configuration, ClientState, GameGui);
         Renderer.Initialize(PluginInterface, Log);
@@ -117,6 +117,9 @@ public sealed class Plugin : IDalamudPlugin
         ApplyUiHidePolicy();
         Log.Information("ViewInFFXIV loaded. Use {Command} to open it.", CommandName);
     }
+
+    /// <summary>The video to show on the wall, the UI picture and the preview: null (blank) until there is one.</summary>
+    public ImTextureID? Picture => HighPerformance.ShowsVideo ? video?.Handle : null;
 
     /// <summary>The video texture shared by the helper, on the game's GPU (created on first use).</summary>
     public SharedVideo Video
@@ -246,7 +249,7 @@ public sealed class Plugin : IDalamudPlugin
         if (Benchmark.SkipRender)
             Renderer.Hide();
         else
-            Renderer.Draw(video?.Handle, IsGameUiHidden());
+            Renderer.Draw(Picture, IsGameUiHidden());
         Benchmark.EndFrame();
     }
 
@@ -387,7 +390,7 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "stop":
                 HighPerformance.Stop();
-                Notify.Info("Left the party", "The browser is closed.");
+                Notify.Info("Left the party");
                 break;
             default:
                 ChatGui.Print(Usage, ChatPrefix);

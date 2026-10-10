@@ -78,6 +78,13 @@ public sealed class ManagedBrowserStatus
     [JsonPropertyName("playback")]
     public PlaybackStatus? Playback { get; set; }
 
+    /// <summary>
+    /// The room still holds w2g's sample video (<see cref="PlaybackStatus.IsW2gSample"/>). Playback is null then,
+    /// and the picture stays blank: the paused sample still draws its player bar.
+    /// </summary>
+    [JsonPropertyName("sample")]
+    public bool SampleVideo { get; set; }
+
     [JsonIgnore]
     public bool Active => State is "starting" or "ready" or "busy";
 }
@@ -85,6 +92,15 @@ public sealed class ManagedBrowserStatus
 /// <summary>State of the YouTube player in the room (null when nothing is loaded).</summary>
 public sealed class PlaybackStatus
 {
+    /// <summary>
+    /// The sample video w2g puts in every new room ("Watch2Gether - Cats vs. Dogs"). Until someone plays something
+    /// it counts as nothing playing, so it never shows as the room's video or lands in Recent.
+    /// </summary>
+    public static bool IsW2gSample(string videoId, string title, string channel) =>
+        videoId == "p5wTH5wFEwg"
+        || channel.Equals("Watch2Gether", StringComparison.OrdinalIgnoreCase)
+        || title.StartsWith("Watch2Gether - ", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>YouTube video id.</summary>
     [JsonPropertyName("id")]
     public string VideoId { get; set; } = "";

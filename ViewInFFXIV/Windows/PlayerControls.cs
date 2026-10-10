@@ -65,37 +65,24 @@ internal sealed class PlayerControls
             queue.Next();
 
         // Volume and subtitles are yours only: on the right.
-        var volumeWidth = 110f * scale;
+        var barWidth = 80f * scale;
+        var labelWidth = ImGui.CalcTextSize("100%").X;
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
         ImGui.SameLine();
-        var right = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X - volumeWidth - (2 * small) - 16;
+        var right = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X - (2 * small) - barWidth - labelWidth - (3 * spacing);
         ImGui.SetCursorPosX(MathF.Max(ImGui.GetCursorPosX(), right));
         ImGui.SetCursorPosY(y + ((big - small) / 2));
 
-        if (pendingVolume is { } pv && (playback.Volume == pv || DateTime.UtcNow > pendingVolumeUntil))
-            pendingVolume = null;
-        var volume = volumeDrag ?? pendingVolume ?? playback.Volume;
-        if (volume > 0)
-            lastVolume = volume;
-        var volumeIcon = volume == 0 ? FontAwesomeIcon.VolumeMute : volume < 50 ? FontAwesomeIcon.VolumeDown : FontAwesomeIcon.VolumeUp;
-        if (Ui.RoundIconButton("##mute", volumeIcon, small, tooltip: volume == 0 ? "Unmute" : "Mute (just you)"))
-            SetVolume(volume == 0 ? Math.Max(10, lastVolume) : 0);
+        var volume = MuteButton(playback, small);
         ImGui.SameLine();
-        ImGui.SetCursorPosY(y + ((big - ImGui.GetFrameHeight() + 6) / 2));
-        ImGui.SetNextItemWidth(volumeWidth);
-        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(6, 3));
-        if (ImGui.SliderInt("##vol", ref volume, 0, 100, "%d%%"))
-            volumeDrag = volume;
-        ImGui.PopStyleVar();
-        if (ImGui.IsItemDeactivated() && volumeDrag is { } dragged)
-        {
-            volumeDrag = null;
-            SetVolume(dragged);
-        }
-
-        if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Your volume (not synced)");
-
+        ImGui.SetCursorPosY(y + ((big - Ui.SeekBarHeight) / 2));
+        VolumeBar(volume, barWidth);
         ImGui.SameLine();
+        var labelX = ImGui.GetCursorPosX();
+        ImGui.SetCursorPosY(y + ((big - ImGui.GetTextLineHeight()) / 2));
+        Ui.Dim($"{volume}%");
+
+        ImGui.SameLine(labelX + labelWidth + spacing);
         ImGui.SetCursorPosY(y + ((big - small) / 2));
         if (pendingSubtitles is { } ps && (playback.Subtitles == ps || DateTime.UtcNow > pendingSubtitlesUntil))
             pendingSubtitles = null;
@@ -112,16 +99,70 @@ internal sealed class PlayerControls
         ImGui.SetCursorPosY(y + big + ImGui.GetStyle().ItemSpacing.Y);
     }
 
-    /// <summary>Play/pause and the seek bar on one line, for the screen on your UI.</summary>
+    /// <summary>
+    /// Play/pause, the seek bar, the time and your volume on one line, for the screen on your UI. The volume bar
+    /// only fits a wide picture; the mute button is always there.
+    /// </summary>
     public void DrawMini(PlaybackStatus playback, float width)
     {
         const float button = 28f;
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
         var y = ImGui.GetCursorPosY();
         if (Ui.RoundIconButton("##miniplay", playback.Paused ? FontAwesomeIcon.Play : FontAwesomeIcon.Pause, button, accent: true, tooltip: playback.Paused ? "Play for everyone" : "Pause for everyone"))
             plugin.HighPerformance.Control(playback.Paused ? "play" : "pause");
+
+        var duration = Math.Max(1, playback.Duration);
+        var position = seekDrag is { } d ? d * duration : playback.Position;
+        var time = playback.Duration > 0 ? $"{WatchQueue.Clock(position)} / {WatchQueue.Clock(duration)}" : "live";
+        var timeWidth = ImGui.CalcTextSize(time).X;
+        var barWidth = width >= 420 ? 64f : 0f;
+        var rightWidth = timeWidth + spacing + button + (barWidth > 0 ? spacing + barWidth : 0);
+
         ImGui.SameLine();
-        ImGui.SetCursorPosY(y + ((button - 18f) / 2));
-        SeekBar(playback, MathF.Max(20, width - button - ImGui.GetStyle().ItemSpacing.X));
+        ImGui.SetCursorPosY(y + ((button - Ui.SeekBarHeight) / 2));
+        SeekBar(playback, MathF.Max(20, width - button - rightWidth - (2 * spacing)));
+        ImGui.SameLine();
+        ImGui.SetCursorPosY(y + ((button - ImGui.GetTextLineHeight()) / 2));
+        ImGui.TextUnformatted(time);
+        ImGui.SameLine();
+        ImGui.SetCursorPosY(y);
+        var volume = MuteButton(playback, button);
+        if (barWidth > 0)
+        {
+            ImGui.SameLine();
+            ImGui.SetCursorPosY(y + ((button - Ui.SeekBarHeight) / 2));
+            VolumeBar(volume, barWidth);
+        }
+    }
+
+    /// <summary>Mute/unmute (just you). Returns the volume to show: the one being dragged or sent, else the player's.</summary>
+    private int MuteButton(PlaybackStatus playback, float size)
+    {
+        if (pendingVolume is { } pv && (playback.Volume == pv || DateTime.UtcNow > pendingVolumeUntil))
+            pendingVolume = null;
+        var volume = volumeDrag ?? pendingVolume ?? playback.Volume;
+        if (volume > 0)
+            lastVolume = volume;
+        var icon = volume == 0 ? FontAwesomeIcon.VolumeMute : volume < 50 ? FontAwesomeIcon.VolumeDown : FontAwesomeIcon.VolumeUp;
+        if (Ui.RoundIconButton("##mute", icon, size, tooltip: volume == 0 ? "Unmute" : "Mute (just you)"))
+            SetVolume(volume == 0 ? Math.Max(10, lastVolume) : 0);
+        return volume;
+    }
+
+    /// <summary>Your volume, drawn like the seek bar; it is set when you let go.</summary>
+    private void VolumeBar(int volume, float width)
+    {
+        float? drag = volumeDrag / 100f;
+        var released = Ui.SeekBar("##vol", volume / 100f, width, ref drag, out var hover);
+        volumeDrag = drag is { } d ? (int)MathF.Round(d * 100) : null;
+        if (released && volumeDrag is { } dragged)
+        {
+            volumeDrag = null;
+            SetVolume(dragged);
+        }
+
+        if (hover is { } h)
+            ImGui.SetTooltip($"Your volume (just you): {(int)MathF.Round(h * 100)}%");
     }
 
     /// <summary>The seek bar with its time tooltip; seeks for everyone on release. Returns the duration used.</summary>

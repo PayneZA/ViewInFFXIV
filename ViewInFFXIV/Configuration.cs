@@ -136,6 +136,9 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Recently watched, newest first.</summary>
     public List<VideoInfo> History { get; set; } = [];
 
+    /// <summary>Videos you starred, newest first.</summary>
+    public List<VideoInfo> Favourites { get; set; } = [];
+
     public bool AutoAdvance { get; set; } = true;
 
     /// <summary>"auto" (Brave, else Chrome, else Edge) or a browser id from <see cref="Shared.Browsers"/>.</summary>

@@ -5,7 +5,8 @@ namespace ViewInFFXIV;
 /// <summary>
 /// Short notices (party ready, errors) show as Dalamud notifications in the corner. Information worth reading at
 /// your own pace, like what an invite contains and how friends use it, goes to the chat box as an echo
-/// (<see cref="Chat"/>), where it stays. The same notification within a few seconds shows once.
+/// (<see cref="Chat"/>), where it stays. A notice's title is the whole notification; its explanation, if it has
+/// one, goes to chat, because notifications cut longer text off. The same notice within a few seconds shows once.
 /// </summary>
 internal static class Notify
 {
@@ -44,9 +45,10 @@ internal static class Notify
         Plugin.Notifications.AddNotification(new Notification
         {
             Type = type,
-            Title = text == null ? null : title,
-            Content = text ?? title,
+            Content = title,
             InitialDuration = type == NotificationType.Error ? TimeSpan.FromSeconds(8) : TimeSpan.FromSeconds(4),
         });
+        if (text != null)
+            Chat($"{title}. {text}");
     }
 }

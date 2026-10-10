@@ -31,7 +31,10 @@ public sealed partial class MainWindow : Window, IDisposable
         Results,
         UpNext,
         Recent,
+        Favourites,
     }
+
+    private const int WatchAgainCount = 5;
 
     private readonly Plugin plugin;
     private readonly ScreenTab screenTab;
@@ -45,6 +48,7 @@ public sealed partial class MainWindow : Window, IDisposable
     private volatile string? searchError;
     private volatile bool searching;
     private string lastQuery = "";
+    private int searchCount;
     private CancellationTokenSource? searchCts;
 
     private readonly PlayerControls controls;
@@ -302,7 +306,18 @@ public sealed partial class MainWindow : Window, IDisposable
             ImGui.PopStyleColor();
             ImGui.Spacing();
 
-            if (Ui.AccentButton("Start a watch party", new Vector2(width, 44)))
+            var rejoin = plugin.Configuration.LastRoomUrl;
+            if (Party.Dropped && rejoin.Length > 0)
+            {
+                ImGui.PushStyleColor(ImGuiCol.Text, Ui.Warn);
+                ImGui.TextWrapped("Your watch party stopped unexpectedly. Rejoin to get back in with your friends.");
+                ImGui.PopStyleColor();
+                if (Ui.AccentButton("Rejoin your last party", new Vector2(width, 44)))
+                    Party.Join(rejoin);
+                ImGui.Spacing();
+            }
+
+            if (Party.Dropped && rejoin.Length > 0 ? ImGui.Button("Start a new watch party", new Vector2(width, 36)) : Ui.AccentButton("Start a watch party", new Vector2(width, 44)))
                 Party.StartParty();
 
             ImGui.Spacing();
@@ -320,11 +335,11 @@ public sealed partial class MainWindow : Window, IDisposable
                     joinInput = "";
             }
 
-            if (plugin.Configuration.LastRoomUrl.Length > 0)
+            if (rejoin.Length > 0 && !Party.Dropped)
             {
                 ImGui.Spacing();
                 if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.History, "Rejoin your last party"))
-                    Party.Join(plugin.Configuration.LastRoomUrl);
+                    Party.Join(rejoin);
             }
 
             ImGui.Spacing();
@@ -337,6 +352,36 @@ public sealed partial class MainWindow : Window, IDisposable
                     Util.OpenLink(Browsers.BraveDownloadUrl);
             }
         });
+
+        DrawWatchAgain();
+    }
+
+    /// <summary>Under the welcome card: what you watched lately. Play starts a party with it; + lines it up.</summary>
+    private void DrawWatchAgain()
+    {
+        if (Queue.History.Count == 0)
+            return;
+
+        ImGui.TextUnformatted("Watch again");
+        ImGui.SameLine();
+        Ui.Dim("— play one to start a party with it");
+
+        // A short pick of the latest few, not the whole history (that is the Recent list in a party).
+        for (var i = 0; i < Math.Min(Queue.History.Count, WatchAgainCount); i++)
+        {
+            var video = Queue.History[i];
+            VideoRow(video, i, () =>
+            {
+                if (ActionButton("play", FontAwesomeIcon.Play, "Start a party with this video\n(puts the screen up and copies the invite)"))
+                    Party.StartParty(video);
+                ImGui.SameLine();
+                var queued = Queue.Contains(video.Id);
+                if (ActionButton("add", queued ? FontAwesomeIcon.Check : FontAwesomeIcon.Plus, queued ? "In Up next" : "Add to Up next") && !queued)
+                    Queue.Add(video);
+                ImGui.SameLine();
+                StarButton(video);
+            }, 3, onDoubleClick: () => Party.StartParty(video));
+        }
     }
 
     private void DrawStarting()
@@ -364,7 +409,7 @@ public sealed partial class MainWindow : Window, IDisposable
             size = new Vector2(maxHeight * 16f / 9f, maxHeight);
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() + ((avail - size.X) / 2));
         var picture = ImGui.GetCursorScreenPos();
-        Ui.RoundedImage(plugin.Video.Handle, size, 10f, FontAwesomeIcon.Tv);
+        Ui.RoundedImage(plugin.Picture, size, 10f, FontAwesomeIcon.Tv);
         if (playback == null)
         {
             var dl = ImGui.GetWindowDrawList();
@@ -424,6 +469,7 @@ public sealed partial class MainWindow : Window, IDisposable
 
         searchCts?.Cancel();
         var cts = searchCts = new CancellationTokenSource();
+        searchCount++;
         lastQuery = text;
         searching = true;
         searchError = null;
@@ -467,9 +513,14 @@ public sealed partial class MainWindow : Window, IDisposable
         ImGui.SameLine();
         if (Segment("Recent", ListView.Recent))
             listView = ListView.Recent;
+        ImGui.SameLine();
+        if (Segment($"Favourites ({Queue.Favourites.Count})", ListView.Favourites))
+            listView = ListView.Favourites;
 
+        // Each list (and each new search) scrolls on its own, from the top.
         var height = MathF.Max(170, ImGui.GetContentRegionAvail().Y);
-        using var child = Dalamud.Interface.Utility.Raii.ImRaii.Child("##list", new Vector2(0, height));
+        var id = listView == ListView.Results ? $"##results{searchCount}" : $"##list{listView}";
+        using var child = Dalamud.Interface.Utility.Raii.ImRaii.Child(id, new Vector2(0, height));
         if (!child.Success)
             return;
 
@@ -483,6 +534,9 @@ public sealed partial class MainWindow : Window, IDisposable
                 break;
             case ListView.Recent:
                 DrawRecent();
+                break;
+            case ListView.Favourites:
+                DrawFavourites();
                 break;
         }
     }
@@ -523,7 +577,9 @@ public sealed partial class MainWindow : Window, IDisposable
                 var queued = Queue.Contains(video.Id);
                 if (ActionButton("add", queued ? FontAwesomeIcon.Check : FontAwesomeIcon.Plus, queued ? "In Up next" : "Add to Up next") && !queued)
                     Queue.Add(video);
-            }, 2, onDoubleClick: () => Queue.PlayNow(video));
+                ImGui.SameLine();
+                StarButton(video);
+            }, 3, onDoubleClick: () => Queue.PlayNow(video));
         }
     }
 
@@ -590,9 +646,36 @@ public sealed partial class MainWindow : Window, IDisposable
                 var queued = Queue.Contains(video.Id);
                 if (ActionButton("add", queued ? FontAwesomeIcon.Check : FontAwesomeIcon.Plus, queued ? "In Up next" : "Add to Up next") && !queued)
                     Queue.Add(video);
-            }, 2, onDoubleClick: () => Queue.PlayNow(video));
+                ImGui.SameLine();
+                StarButton(video);
+            }, 3, onDoubleClick: () => Queue.PlayNow(video));
             if (i >= 24)
                 break;
+        }
+    }
+
+    private void DrawFavourites()
+    {
+        if (Queue.Favourites.Count == 0)
+        {
+            Ui.Dim("Star a video to keep it here.");
+            return;
+        }
+
+        for (var i = 0; i < Queue.Favourites.Count; i++)
+        {
+            var video = Queue.Favourites[i];
+            VideoRow(video, i, () =>
+            {
+                if (ActionButton("play", FontAwesomeIcon.Play, "Play now for everyone"))
+                    Queue.PlayNow(video);
+                ImGui.SameLine();
+                var queued = Queue.Contains(video.Id);
+                if (ActionButton("add", queued ? FontAwesomeIcon.Check : FontAwesomeIcon.Plus, queued ? "In Up next" : "Add to Up next") && !queued)
+                    Queue.Add(video);
+                ImGui.SameLine();
+                StarButton(video);
+            }, 3, onDoubleClick: () => Queue.PlayNow(video));
         }
     }
 
@@ -606,7 +689,7 @@ public sealed partial class MainWindow : Window, IDisposable
 
         var start = ImGui.GetCursorScreenPos();
         var width = ImGui.GetContentRegionAvail().X;
-        var actionsWidth = (actionCount * actionSize) + ((actionCount - 1) * 6) + 6;
+        var actionsWidth = (actionCount * actionSize) + ((actionCount - 1) * ImGui.GetStyle().ItemSpacing.X) + 6;
         var hit = ImGui.InvisibleButton("##row", new Vector2(MathF.Max(1, width - actionsWidth), thumbHeight));
         var hovered = ImGui.IsItemHovered();
         if (hovered && onDoubleClick != null && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
@@ -653,13 +736,21 @@ public sealed partial class MainWindow : Window, IDisposable
         ImGui.PopID();
     }
 
-    private static bool ActionButton(string id, FontAwesomeIcon icon, string tooltip) =>
-        Ui.RoundIconButton($"##{id}", icon, 30f, tooltip: tooltip);
+    private static bool ActionButton(string id, FontAwesomeIcon icon, string tooltip, bool accent = false) =>
+        Ui.RoundIconButton($"##{id}", icon, 30f, accent: accent, tooltip: tooltip);
+
+    /// <summary>The star on a video row: filled in the accent colour when it's one of your favourites.</summary>
+    private void StarButton(VideoInfo video)
+    {
+        var starred = Queue.IsFavourite(video.Id);
+        if (ActionButton("star", FontAwesomeIcon.Star, starred ? "Remove from Favourites" : "Add to Favourites", accent: starred))
+            Queue.ToggleFavourite(video);
+    }
 
     // ───────────────────────────── settings tab ─────────────────────────────
 
     /// <summary>Settings that only apply to the screen on a wall.</summary>
-    private static void DrawWallSettings(Configuration config)
+    private static void DrawWallSettings(Configuration config, float width)
     {
         var behind = config.DrawBehindGameUi;
         if (ImGui.Checkbox("Keep chat bubbles, name plates and the HUD on top of the screen", ref behind))
@@ -682,10 +773,11 @@ public sealed partial class MainWindow : Window, IDisposable
             ImGui.Unindent();
         }
 
-        var cover = config.ScreenCoverDepth * 100f;
-        ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - 220);
-        if (ImGui.SliderFloat("Covers furniture up to", ref cover, 0f, 100f, "%.0f cm in front of it"))
-            config.ScreenCoverDepth = cover / 100f;
+        ImGui.TextUnformatted("Covers furniture in front of the screen up to");
+        var cover = config.ScreenCoverDepth;
+        ImGui.SetNextItemWidth(width);
+        if (ImGui.SliderFloat("##cover", ref cover, 0f, 1f, "%.2f yalms"))
+            config.ScreenCoverDepth = cover;
         if (ImGui.IsItemDeactivatedAfterEdit())
             config.Save();
         Ui.Dim("For a screen hung over furniture or set into a wall. People always pass in front of it.");
@@ -742,11 +834,11 @@ public sealed partial class MainWindow : Window, IDisposable
             }
         });
 
-        Ui.Card("display", _ =>
+        Ui.Card("display", width =>
         {
             ImGui.TextUnformatted("Screen");
             if (config.ScreenMode == ScreenMode.InGame)
-                DrawWallSettings(config);
+                DrawWallSettings(config, width);
 
             var keep = config.KeepScreenWhenUiHidden;
             if (ImGui.Checkbox("Keep the screen when the game UI is hidden (Scroll Lock, cutscenes, GPose)", ref keep))
@@ -818,7 +910,8 @@ public sealed partial class MainWindow : Window, IDisposable
 
         Ui.Card("diagnostics", _ =>
         {
-            if (!ImGui.CollapsingHeader("Diagnostics"))
+            // A tree node, not a collapsing header: a header spans the whole window and pokes out of the card.
+            if (!ImGui.TreeNodeEx("Diagnostics", ImGuiTreeNodeFlags.NoTreePushOnOpen))
                 return;
 
             var host = plugin.Host.Status;

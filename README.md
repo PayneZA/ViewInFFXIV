@@ -28,9 +28,10 @@ Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), 
 **In the window**
 
 - **Watch** — the live picture, controls, *Search YouTube or paste a link*, results with thumbnails, **Up next**
-  (the next one starts when a video ends) and **Recent**.
+  (the next one starts when a video ends), **Recent** and **Favourites** (star a video to keep it there).
 - **Screen** — choose where the TV is: **In game** (on a wall, to watch with the people in the room) or **On UI**
-  (a picture on your own screen that goes wherever you go; drag to move, hover for play/pause and the seek bar).
+  (a picture on your own screen that goes wherever you go; drag to move, hover for play/pause, the seek bar, the time
+  and your volume).
   In game: place the TV, fine-tune distance / height / size / turn / tilt, saved spots (lounge, bedroom, …) and
   spot codes. Spots belong to the house they were made in, and each house brings back the spot you last used there.
 - **Settings** — subtitles, Up next, sound, screen behaviour, the browser, diagnostics.

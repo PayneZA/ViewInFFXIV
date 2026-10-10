@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using ViewInFFXIV.Media;
 using ViewInFFXIV.Shared;
 using ViewInFFXIV.World;
 
@@ -21,6 +22,9 @@ public sealed partial class HighPerformance
     private DateTime connectingUntil = DateTime.MinValue;
     private DateTime foregroundLockUntil = DateTime.MinValue;
 
+    // The video "Watch again" started this party with; played once the room it created is ready.
+    private VideoInfo? startWith;
+
     public HighPerformance(Plugin plugin)
     {
         this.plugin = plugin;
@@ -32,6 +36,15 @@ public sealed partial class HighPerformance
     public ManagedBrowserStatus Status => plugin.Host.Status.Managed;
 
     public bool Active => plugin.Host.HelperAlive && Status.Active;
+
+    /// <summary>
+    /// The room is open and holds something to watch, so the browser shows it. Before that it shows w2g's own pages
+    /// or its paused sample video, which never go on the wall, the UI picture or the preview.
+    /// </summary>
+    public bool ShowsVideo => Active && Status.RoomUrl.Length > 0 && !Status.SampleVideo;
+
+    /// <summary>Your last party ended because the helper stopped unexpectedly; cleared by starting or joining one.</summary>
+    public bool Dropped { get; private set; }
 
     /// <summary>A party was started or joined and the room is not there yet (helper and Brave starting up).</summary>
     public bool Connecting =>
@@ -86,9 +99,14 @@ public sealed partial class HighPerformance
         SendName();
     }
 
-    /// <summary>One click: put the screen up (in front of you, if this zone has none yet) and create a room.</summary>
-    public void StartParty()
+    /// <summary>
+    /// One click: put the screen up (in front of you, if this zone has none yet) and create a room. With a video, it
+    /// plays for everyone as soon as the room is ready.
+    /// </summary>
+    public void StartParty(VideoInfo? video = null)
     {
+        Dropped = false;
+        startWith = video;
         var config = plugin.Configuration;
         if (config.ScreenMode == ScreenMode.OnUi)
         {
@@ -124,6 +142,8 @@ public sealed partial class HighPerformance
         if (text.Contains(ScreenShareCode.Prefix, StringComparison.OrdinalIgnoreCase))
             plugin.ApplyShareCode(text);
 
+        Dropped = false;
+        startWith = null;
         Start();
         creatingRoom = false;
         connectingUntil = DateTime.UtcNow + TimeSpan.FromSeconds(90);
@@ -171,7 +191,7 @@ public sealed partial class HighPerformance
     {
         if (Playback == null)
         {
-            Notify.Warning("Nothing is playing", "Play controls work once a YouTube video is on.");
+            Notify.Warning("Nothing is playing yet");
             return;
         }
 
@@ -243,13 +263,14 @@ public sealed partial class HighPerformance
         plugin.Host.StopHost();
         bringToFront = false;
         connectingUntil = DateTime.MinValue;
+        startWith = null;
     }
 
     public void CopyInvite()
     {
         if (Status.RoomUrl.Length == 0)
         {
-            Notify.Warning("No party yet", "Start or join one first.");
+            Notify.Warning("Start or join a party first");
             return;
         }
 
@@ -268,6 +289,30 @@ public sealed partial class HighPerformance
     /// <summary>Runs every framework tick: reports rooms/errors in chat and finishes Show/startup focus handling.</summary>
     public void Tick()
     {
+        // Before anything below forgets the room: lastRoomUrl still says whether there was one.
+        if (plugin.Host.TakeCrash())
+        {
+            var hadRoom = lastRoomUrl.Length > 0;
+            lastRoomUrl = "";
+            lastError = null;
+            creatingRoom = false;
+            startWith = null;
+            connectingUntil = DateTime.MinValue;
+            Dropped = hadRoom;
+            if (hadRoom)
+            {
+                Notify.Error("The watch party stopped");
+                Notify.Chat("The watch party stopped unexpectedly. Press \"Rejoin your last party\" in /viewin, or type /viewin join, to get back in.");
+            }
+            else
+            {
+                Notify.Error("The watch party couldn't start");
+                Notify.Chat("The watch party stopped unexpectedly while it was starting. Start it again from /viewin.");
+            }
+
+            return;
+        }
+
         var status = Status;
 
         if (foregroundLockUntil != DateTime.MinValue
@@ -296,6 +341,11 @@ public sealed partial class HighPerformance
                 PendingClipboard = BuildInvite();
                 Notify.Success("Watch party ready");
                 Notify.Chat(InviteCopiedText());
+                if (startWith is { } video)
+                {
+                    startWith = null;
+                    plugin.Queue.PlayNow(video);
+                }
             }
             else
             {
@@ -326,7 +376,10 @@ public sealed partial class HighPerformance
         {
             lastError = status.Error;
             if (!string.IsNullOrEmpty(status.Error))
+            {
+                startWith = null;
                 Notify.Error("Watch party problem", status.Error);
+            }
         }
     }
 

@@ -84,10 +84,12 @@ internal sealed class ScreenTab
         {
             var shown = Config.UiScreenShown;
             Ui.Pill(shown ? "● On your UI" : "Hidden", shown ? Ui.Good : Ui.TextDim);
-            ImGui.TextWrapped("Drag the picture to move it and an edge to resize it. Hover it for play/pause and the seek bar.");
+            ImGui.TextWrapped("Drag the picture to move it and an edge to resize it. Hover it for play/pause, the seek bar and your volume.");
 
+            // Showing a hidden picture is the thing to do here; hiding one is not, so only that gets the accent.
             var half = (width - 8) / 2;
-            if (Ui.AccentButton(shown ? "Hide screen" : "Show screen", new Vector2(half, 34)))
+            var label = shown ? "Hide screen" : "Show screen";
+            if (shown ? ImGui.Button(label, new Vector2(half, 34)) : Ui.AccentButton(label, new Vector2(half, 34)))
             {
                 Config.UiScreenShown = !shown;
                 Config.Save();
@@ -223,28 +225,28 @@ internal sealed class ScreenTab
             ImGui.PushItemWidth(width - 110);
 
             var distance = Config.PlaceDistance;
-            if (Slider("Distance", ref distance, PlacementLimits.MinDistance, PlacementLimits.MaxDistance, "%.2f y"))
+            if (Slider("Distance", ref distance, PlacementLimits.MinDistance, PlacementLimits.MaxDistance, "%.2f yalms"))
             {
                 Config.PlaceDistance = distance;
                 ScreenPlacement.ApplyLive(Config);
             }
 
             var height = Config.PlaceHeight;
-            if (Slider("Height", ref height, PlacementLimits.MinHeight, PlacementLimits.MaxHeight, "%.2f y"))
+            if (Slider("Height", ref height, PlacementLimits.MinHeight, PlacementLimits.MaxHeight, "%.2f yalms"))
             {
                 Config.PlaceHeight = height;
                 ScreenPlacement.ApplyLive(Config);
             }
 
             var strafe = Config.PlaceStrafe;
-            if (Slider("Left / right", ref strafe, PlacementLimits.MinStrafe, PlacementLimits.MaxStrafe, "%.2f y"))
+            if (Slider("Left / right", ref strafe, PlacementLimits.MinStrafe, PlacementLimits.MaxStrafe, "%.2f yalms"))
             {
                 Config.PlaceStrafe = strafe;
                 ScreenPlacement.ApplyLive(Config);
             }
 
             var size = Config.ScreenWidth;
-            if (Slider("Size", ref size, PlacementLimits.MinWidth, PlacementLimits.MaxWidth, "%.2f y wide"))
+            if (Slider("Size", ref size, PlacementLimits.MinWidth, PlacementLimits.MaxWidth, "%.2f yalms wide"))
                 Config.ScreenWidth = size;
 
             var yaw = Config.ScreenYaw * 180f / MathF.PI;

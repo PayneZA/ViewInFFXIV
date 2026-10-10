@@ -125,6 +125,8 @@ internal sealed class HostForm : Form
             error = $"{managed.Browser?.Name ?? "The browser"} was closed. Start or join the party again.";
         }
 
+        var playback = managed.IsRunning ? youtube.Status : null;
+        var sample = playback != null && PlaybackStatus.IsW2gSample(playback.VideoId, playback.Title, playback.Author);
         var gpu = capture;
         var capturing = gpu != null && gpu.Window != IntPtr.Zero;
         return new HostStatus
@@ -150,7 +152,8 @@ internal sealed class HostForm : Form
                 RoomUrl = roomUrl,
                 Hwnd = managed.Hwnd.ToInt64(),
                 Shown = managed.Shown,
-                Playback = managed.IsRunning ? youtube.Status : null,
+                Playback = sample ? null : playback,
+                SampleVideo = sample,
             },
         };
     }

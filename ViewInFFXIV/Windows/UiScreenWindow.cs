@@ -8,7 +8,7 @@ namespace ViewInFFXIV.Windows;
 
 /// <summary>
 /// The screen "On UI": a 16:9 picture on your own HUD that goes wherever you go. Drag it to move, drag an edge to
-/// resize; hovering it shows play/pause, the seek bar, a lock and an X back to the wall.
+/// resize; hovering it shows play/pause, the seek bar, the time, your volume, a lock and an X back to the wall.
 /// </summary>
 internal sealed class UiScreenWindow : Window
 {
@@ -35,6 +35,7 @@ internal sealed class UiScreenWindow : Window
         AllowClickthrough = false;
         Size = DefaultSize;
         SizeCondition = ImGuiCond.FirstUseEver;
+        PositionCondition = ImGuiCond.FirstUseEver;
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new Vector2(240, 135),
@@ -51,12 +52,13 @@ internal sealed class UiScreenWindow : Window
     {
         Flags = Config.UiScreenLocked ? BaseFlags | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize : BaseFlags;
 
+        // The first time it appears, and on Reset: bottom right, clear of the main window (top left by default).
+        var viewport = ImGuiHelpers.MainViewport;
+        Position = viewport.WorkPos + viewport.WorkSize - (DefaultSize * ImGuiHelpers.GlobalScale) - new Vector2(40, 120);
         if (resetRequested)
         {
-            var viewport = ImGuiHelpers.MainViewport;
             Size = DefaultSize;
             SizeCondition = ImGuiCond.Always;
-            Position = viewport.WorkPos + viewport.WorkSize - (DefaultSize * ImGuiHelpers.GlobalScale) - new Vector2(40, 120);
             PositionCondition = ImGuiCond.Always;
             resetRequested = false;
             resetApplied = true;
@@ -64,7 +66,7 @@ internal sealed class UiScreenWindow : Window
         else if (resetApplied)
         {
             SizeCondition = ImGuiCond.FirstUseEver;
-            Position = null;
+            PositionCondition = ImGuiCond.FirstUseEver;
             resetApplied = false;
         }
 
@@ -90,7 +92,7 @@ internal sealed class UiScreenWindow : Window
         const float rounding = 10f;
 
         ImGui.SetCursorScreenPos(picture);
-        Ui.RoundedImage(plugin.Video.Handle, size, rounding, FontAwesomeIcon.Tv);
+        Ui.RoundedImage(plugin.Picture, size, rounding, FontAwesomeIcon.Tv);
 
         var dl = ImGui.GetWindowDrawList();
         var playback = plugin.HighPerformance.Playback;

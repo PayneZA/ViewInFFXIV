@@ -174,13 +174,16 @@ internal static class Ui
         }
     }
 
+    /// <summary>Height of <see cref="SeekBar"/> (the bar is drawn centred in it).</summary>
+    public const float SeekBarHeight = 18f;
+
     /// <summary>
     /// A thin seek bar. Shows <paramref name="fraction"/>; while dragged, <paramref name="drag"/> holds the target.
     /// Returns true on the frame the user lets go (seek to <paramref name="drag"/>'s last value).
     /// </summary>
     public static bool SeekBar(string id, float fraction, float width, ref float? drag, out float? hover)
     {
-        const float height = 18f;
+        const float height = SeekBarHeight;
         var pos = ImGui.GetCursorScreenPos();
         ImGui.InvisibleButton(id, new Vector2(width, height));
         var hovered = ImGui.IsItemHovered();
