@@ -5,8 +5,8 @@
     "Punchline": "Watch YouTube together on a TV in your house, in sync.",
     "Description": "Start a watch party in one click and everyone sees the same video, in sync, on a screen on their wall. Search YouTube in game, queue videos, control playback right on the TV, and hear the sound come from the screen. Invites put your friends' TV in the same spot. Requires Windows 10/11 and the Brave browser (brave.com). Open with /viewin.",
     "InternalName": "ViewInFFXIV",
-    "AssemblyVersion": "2.1.2.0",
-    "TestingAssemblyVersion": "2.1.2.0",
+    "AssemblyVersion": "2.2.0.0",
+    "TestingAssemblyVersion": "2.2.0.0",
     "RepoUrl": "https://github.com/PayneZA/ViewInFFXIV",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -18,9 +18,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v2.1.2.0/latest.zip",
-    "DownloadLinkTesting": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v2.1.2.0/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v2.1.2.0/latest.zip",
-    "LastUpdate": "1791631193"
+    "DownloadLinkInstall": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v2.2.0.0/latest.zip",
+    "DownloadLinkTesting": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v2.2.0.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v2.2.0.0/latest.zip",
+    "LastUpdate": "1791652851"
   }
 ]
