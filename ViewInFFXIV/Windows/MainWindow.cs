@@ -247,6 +247,8 @@ public sealed partial class MainWindow : Window, IDisposable
             problems.Add(plugin.Host.Status.Error!);
         if (plugin.Host.Status.SharedTexture.Length > 0 && plugin.Video.Error is { } videoError)
             problems.Add(videoError);
+        if (Party.Playback is { PlayerError.Length: > 0 } broken)
+            problems.Add($"YouTube says: {broken.PlayerError}");
         if (problems.Count == 0)
             return;
 

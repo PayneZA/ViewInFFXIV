@@ -101,6 +101,10 @@ public sealed class PlaybackStatus
     [JsonPropertyName("paused")]
     public bool Paused { get; set; }
 
+    /// <summary>What YouTube shows instead of the video ("Video unavailable", age check…), if anything.</summary>
+    [JsonPropertyName("playerError")]
+    public string PlayerError { get; set; } = "";
+
     /// <summary>The video played to the end.</summary>
     [JsonPropertyName("ended")]
     public bool Ended { get; set; }

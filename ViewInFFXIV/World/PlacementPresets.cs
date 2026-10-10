@@ -1,10 +1,15 @@
 namespace ViewInFFXIV.World;
 
+/// <summary>
+/// Saved screen spots, per zone and per house. Houses of the same size in the same district share a zone, so a
+/// spot remembers the house it was made in (<see cref="PlacementPreset.HouseId"/>) and only shows up there;
+/// spots from before that (house 0) work in any house of the zone. Every function takes the house the player
+/// is in (0 outside houses) from the caller, because during a zone change the game already reports the new one.
+/// </summary>
 public static class PlacementPresets
 {
-    public const int MaxPresetsPerTerritory = 12;
+    public const int MaxPresetsPerTerritory = 24;
     public const string DefaultPresetName = "Default";
-    public const string ImportedPresetName = "Imported";
 
     public static TerritoryPresets? FindTerritory(Configuration config, uint territoryId) =>
         config.SavedPlacements.Find(t => t.TerritoryId == territoryId);
@@ -23,68 +28,84 @@ public static class PlacementPresets
     public static PlacementPreset? FindPreset(TerritoryPresets territory, string name) =>
         territory.Presets.Find(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
-    public static void LoadActivePreset(Configuration config, uint territoryId)
+    /// <summary>The spots that apply in this house: its own, plus ones not tied to a house.</summary>
+    public static List<PlacementPreset> Candidates(TerritoryPresets? territory, ulong house) =>
+        territory?.Presets.Where(p => Fits(p, house)).ToList() ?? [];
+
+    /// <summary>The spot in use here, if any.</summary>
+    public static PlacementPreset? Active(Configuration config, uint territoryId, ulong house)
+    {
+        var territory = FindTerritory(config, territoryId);
+        var preset = territory == null ? null : FindPreset(territory, territory.ActivePresetName);
+        return preset != null && Fits(preset, house) ? preset : null;
+    }
+
+    /// <summary>Entering a zone or house: show the spot you last used here (or none).</summary>
+    public static void LoadActivePreset(Configuration config, uint territoryId, ulong house)
     {
         config.ScreenTerritory = territoryId;
         var territory = FindTerritory(config, territoryId);
-        if (territory == null || string.IsNullOrWhiteSpace(territory.ActivePresetName))
+        var candidates = Candidates(territory, house);
+        // A spot made in this very house wins over older spots that are not tied to a house.
+        var preset = candidates.Where(p => p.HouseId != 0).MaxBy(p => p.LastUsed)
+            ?? Active(config, territoryId, house)
+            ?? candidates.MaxBy(p => p.LastUsed);
+        if (territory == null || preset == null)
         {
             ClearLivePlacement(config, territoryId);
             return;
         }
 
-        var preset = FindPreset(territory, territory.ActivePresetName);
-        if (preset == null)
-        {
-            ClearLivePlacement(config, territoryId);
-            return;
-        }
-
+        Activate(territory, preset);
         ApplyPresetToConfig(config, territoryId, preset);
     }
 
-    public static void SaveActivePreset(Configuration config, uint territoryId)
+    /// <summary>Writes the live placement into the spot in use here, creating one if there is none.</summary>
+    public static void SaveActivePreset(Configuration config, uint territoryId, ulong house)
     {
         if (territoryId == 0)
             return;
 
         config.ScreenTerritory = territoryId;
         var territory = GetOrCreateTerritory(config, territoryId);
-        var name = string.IsNullOrWhiteSpace(territory.ActivePresetName)
-            ? DefaultPresetName
-            : territory.ActivePresetName;
-
-        var preset = FindPreset(territory, name);
+        var preset = Active(config, territoryId, house);
         if (preset == null)
         {
             if (territory.Presets.Count >= MaxPresetsPerTerritory)
                 return;
 
-            preset = new PlacementPreset { Name = name };
+            preset = new PlacementPreset { Name = UniqueName(territory, DefaultPresetName), HouseId = house };
             territory.Presets.Add(preset);
         }
 
-        territory.ActivePresetName = preset.Name;
+        Activate(territory, preset);
         CopyConfigToPreset(config, preset);
     }
 
-    public static bool SelectPreset(Configuration config, uint territoryId, string name)
+    /// <summary>Placing the screen by hand in a house ties the spot in use to that house.</summary>
+    public static void BindActive(Configuration config, uint territoryId, ulong house)
+    {
+        if (house != 0 && Active(config, territoryId, house) is { HouseId: 0 } preset)
+            preset.HouseId = house;
+    }
+
+    public static bool SelectPreset(Configuration config, uint territoryId, string name, ulong house)
     {
         if (territoryId == 0 || string.IsNullOrWhiteSpace(name))
             return false;
 
         var territory = FindTerritory(config, territoryId);
         var preset = territory != null ? FindPreset(territory, name) : null;
-        if (territory == null || preset == null)
+        if (territory == null || preset == null || !Fits(preset, house))
             return false;
 
-        SaveActivePreset(config, territoryId);
-        territory.ActivePresetName = preset.Name;
+        SaveActivePreset(config, territoryId, house);
+        Activate(territory, preset);
         ApplyPresetToConfig(config, territoryId, preset);
         return true;
     }
 
-    public static bool CreatePreset(Configuration config, uint territoryId, string name)
+    public static bool CreatePreset(Configuration config, uint territoryId, string name, ulong house)
     {
         if (territoryId == 0)
             return false;
@@ -93,52 +114,43 @@ public static class PlacementPresets
         if (string.IsNullOrEmpty(name))
             return false;
 
-        SaveActivePreset(config, territoryId);
+        SaveActivePreset(config, territoryId, house);
         var territory = GetOrCreateTerritory(config, territoryId);
-        if (FindPreset(territory, name) != null)
-            return false;
-        if (territory.Presets.Count >= MaxPresetsPerTerritory)
+        if (FindPreset(territory, name) != null || territory.Presets.Count >= MaxPresetsPerTerritory)
             return false;
 
-        var preset = new PlacementPreset { Name = name };
+        var preset = new PlacementPreset { Name = name, HouseId = house };
         CopyConfigToPreset(config, preset);
         territory.Presets.Add(preset);
-        territory.ActivePresetName = preset.Name;
+        Activate(territory, preset);
         return true;
     }
 
-    public static bool DeletePreset(Configuration config, uint territoryId, string name)
+    public static bool DeletePreset(Configuration config, uint territoryId, string name, ulong house)
     {
         var territory = FindTerritory(config, territoryId);
-        if (territory == null || string.IsNullOrWhiteSpace(name))
-            return false;
-
-        var preset = FindPreset(territory, name);
-        if (preset == null)
+        var preset = territory == null || string.IsNullOrWhiteSpace(name) ? null : FindPreset(territory, name);
+        if (territory == null || preset == null)
             return false;
 
         territory.Presets.Remove(preset);
         if (territory.Presets.Count == 0)
-        {
             config.SavedPlacements.Remove(territory);
-            ClearLivePlacement(config, territoryId);
-            return true;
-        }
 
+        // Show the next spot of this house, or nothing.
         if (territory.ActivePresetName.Equals(name, StringComparison.OrdinalIgnoreCase))
         {
-            var next = territory.Presets[0];
-            territory.ActivePresetName = next.Name;
-            ApplyPresetToConfig(config, territoryId, next);
+            territory.ActivePresetName = "";
+            LoadActivePreset(config, territoryId, house);
         }
 
         return true;
     }
 
-    public static void OnTerritoryChanged(Configuration config, uint previousTerritoryId, uint newTerritoryId)
+    public static void OnTerritoryChanged(Configuration config, uint previousTerritoryId, ulong previousHouse, uint newTerritoryId, ulong newHouse)
     {
-        if (previousTerritoryId != 0 && previousTerritoryId != newTerritoryId)
-            SaveActivePreset(config, previousTerritoryId);
+        if (previousTerritoryId != 0 && (previousTerritoryId != newTerritoryId || previousHouse != newHouse) && config.ScreenTerritory == previousTerritoryId && config.HasAnchor)
+            SaveActivePreset(config, previousTerritoryId, previousHouse);
 
         if (newTerritoryId == 0)
         {
@@ -146,25 +158,15 @@ public static class PlacementPresets
             return;
         }
 
-        LoadActivePreset(config, newTerritoryId);
+        LoadActivePreset(config, newTerritoryId, newHouse);
     }
 
-    public static void RemoveActivePreset(Configuration config, uint territoryId)
+    public static void RemoveActivePreset(Configuration config, uint territoryId, ulong house)
     {
-        if (territoryId == 0)
-        {
-            ClearLivePlacement(config, 0);
-            return;
-        }
-
-        var territory = FindTerritory(config, territoryId);
-        if (territory == null || string.IsNullOrWhiteSpace(territory.ActivePresetName))
-        {
+        if (Active(config, territoryId, house) is { } preset)
+            DeletePreset(config, territoryId, preset.Name, house);
+        else
             ClearLivePlacement(config, territoryId);
-            return;
-        }
-
-        DeletePreset(config, territoryId, territory.ActivePresetName);
     }
 
     public static void MigrateFromV2(Configuration config)
@@ -186,35 +188,62 @@ public static class PlacementPresets
     }
 
     /// <summary>
-    /// Stores a shared placement (decoded into <paramref name="shared"/>) as the "Imported" spot of its zone and
-    /// makes it that zone's active spot. Your own spots are never overwritten; the screen moves now only when
-    /// you are in that zone. Returns false when the zone already has the maximum number of spots.
+    /// Stores a shared placement (decoded into <paramref name="shared"/>) as a spot of its zone, tied to the
+    /// house it came from. It becomes the active spot, and the screen moves, only when you are in that same house
+    /// (or the code has no house). Your own spots are never overwritten. Returns false when the zone is full.
     /// </summary>
-    public static bool ImportShared(Configuration config, Configuration shared, uint currentTerritory)
+    public static bool ImportShared(Configuration config, Configuration shared, ulong sharedHouse, uint currentTerritory, ulong currentHouse)
     {
         var territoryId = shared.ScreenTerritory;
         if (territoryId == 0)
             return false;
 
-        // Keep any unsaved slider changes of the spot you are leaving.
-        if (currentTerritory == territoryId)
-            SaveActivePreset(config, territoryId);
+        var here = currentTerritory == territoryId && (sharedHouse == 0 || sharedHouse == currentHouse);
+        if (here)
+            SaveActivePreset(config, territoryId, currentHouse);
 
         var territory = GetOrCreateTerritory(config, territoryId);
-        var preset = FindPreset(territory, ImportedPresetName);
+        var name = sharedHouse == 0 ? "Imported" : $"Party spot ({HouseLocator.Describe(sharedHouse)})";
+        var preset = (sharedHouse != 0 ? territory.Presets.Find(p => p.HouseId == sharedHouse && p.Name.StartsWith("Party spot", StringComparison.Ordinal)) : null)
+            ?? FindPreset(territory, name);
         if (preset == null)
         {
             if (territory.Presets.Count >= MaxPresetsPerTerritory)
                 return false;
-            preset = new PlacementPreset { Name = ImportedPresetName };
+            preset = new PlacementPreset { Name = UniqueName(territory, name) };
             territory.Presets.Add(preset);
         }
 
         CopyConfigToPreset(shared, preset);
-        territory.ActivePresetName = preset.Name;
-        if (currentTerritory == territoryId)
+        preset.HouseId = sharedHouse;
+        if (here)
+        {
+            Activate(territory, preset);
             ApplyPresetToConfig(config, territoryId, preset);
+        }
+        else if (sharedHouse != 0)
+        {
+            // Picked automatically when you walk into that house.
+            preset.LastUsed = DateTime.UtcNow.Ticks;
+        }
+
         return true;
+    }
+
+    private static bool Fits(PlacementPreset preset, ulong house) => preset.HouseId == 0 || preset.HouseId == house;
+
+    private static void Activate(TerritoryPresets territory, PlacementPreset preset)
+    {
+        territory.ActivePresetName = preset.Name;
+        preset.LastUsed = DateTime.UtcNow.Ticks;
+    }
+
+    private static string UniqueName(TerritoryPresets territory, string name)
+    {
+        var candidate = name;
+        for (var i = 2; FindPreset(territory, candidate) != null; i++)
+            candidate = $"{name} {i}";
+        return candidate;
     }
 
     private static void ClearLivePlacement(Configuration config, uint territoryId)

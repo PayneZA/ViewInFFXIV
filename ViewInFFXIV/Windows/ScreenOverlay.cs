@@ -40,6 +40,15 @@ internal sealed class ScreenOverlay
             return;
         }
 
+        // Not through walls from the other end of the house.
+        var player = Plugin.ObjectTable.LocalPlayer;
+        if (player == null || System.Numerics.Vector3.Distance(player.Position, center) > 6f + config.ScreenWidth + config.HearingRange)
+        {
+            alpha = 0;
+            overlayHovered = false;
+            return;
+        }
+
         var io = ImGui.GetIO();
         var now = ImGui.GetTime();
         // Not while you hold a mouse button out in the world (turning the camera across the screen).

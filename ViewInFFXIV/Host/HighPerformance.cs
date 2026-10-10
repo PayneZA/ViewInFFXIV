@@ -75,12 +75,12 @@ public sealed partial class HighPerformance
             if (config.ScreenTerritory == Plugin.ClientState.TerritoryType && config.HasAnchor)
             {
                 config.ScreenEnabled = true;
-                PlacementPresets.SaveActivePreset(config, Plugin.ClientState.TerritoryType);
+                PlacementPresets.SaveActivePreset(config, Plugin.ClientState.TerritoryType, plugin.CurrentHouse);
                 config.Save();
             }
             else
             {
-                plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, config);
+                plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, config, plugin.CurrentHouse);
             }
         }
 
@@ -119,7 +119,7 @@ public sealed partial class HighPerformance
         if (link.Length == 0 || !plugin.Renderer.WillDraw)
             return link;
         ScreenPlacement.EnsureAnchor(config);
-        return $"{link} {ScreenShareCode.Export(config)}";
+        return $"{link} {ScreenShareCode.Export(config, plugin.CurrentHouse)}";
     }
 
     public void Play(string text)

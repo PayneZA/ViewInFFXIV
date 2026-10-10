@@ -38,6 +38,12 @@ public sealed class PlacementPreset
     public float AnchorZ { get; set; }
 
     public float AnchorYaw { get; set; }
+
+    /// <summary>The house this spot belongs to (see <see cref="World.HouseLocator"/>); 0 = any house of the zone.</summary>
+    public ulong HouseId { get; set; }
+
+    /// <summary>When the spot was last shown (UTC ticks), to bring back the one you used last in a house.</summary>
+    public long LastUsed { get; set; }
 }
 
 [Serializable]

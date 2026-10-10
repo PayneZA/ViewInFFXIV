@@ -53,12 +53,16 @@ public sealed class Plugin : IDalamudPlugin
 
     public bool MainWindowOpen => mainWindow.IsOpen;
 
+    /// <summary>The house you are in (0 outside houses), as of this framework tick.</summary>
+    public ulong CurrentHouse => lastHouse;
+
     private readonly ScreenOverlay screenOverlay;
 
     private readonly MainWindow mainWindow;
     private readonly object videoLock = new();
     private SharedVideo? video;
     private uint lastTerritoryType;
+    private ulong lastHouse;
 
     public Plugin()
     {
@@ -70,8 +74,9 @@ public sealed class Plugin : IDalamudPlugin
         Configuration.SavedPlacements ??= [];
 
         lastTerritoryType = ClientState.TerritoryType;
+        lastHouse = HouseLocator.Current();
         if (lastTerritoryType != 0)
-            PlacementPresets.LoadActivePreset(Configuration, lastTerritoryType);
+            PlacementPresets.LoadActivePreset(Configuration, lastTerritoryType, lastHouse);
 
         Host = new HostClient(Log, PluginInterface.AssemblyLocation.DirectoryName ?? AppContext.BaseDirectory);
 
@@ -140,34 +145,40 @@ public sealed class Plugin : IDalamudPlugin
     public bool ApplyShareCode(string raw)
     {
         var shared = new Configuration();
-        if (!ScreenShareCode.TryImport(raw, shared, out var error))
+        if (!ScreenShareCode.TryImport(raw, shared, out var sharedHouse, out var error))
         {
             ChatGui.PrintError($"{ChatPrefix}: {error}");
             return false;
         }
 
-        if (!PlacementPresets.ImportShared(Configuration, shared, ClientState.TerritoryType))
+        if (!PlacementPresets.ImportShared(Configuration, shared, sharedHouse, ClientState.TerritoryType, CurrentHouse))
         {
             ChatGui.PrintError($"{ChatPrefix}: that zone already has {PlacementPresets.MaxPresetsPerTerritory} saved spots; delete one first.");
             return false;
         }
 
         Configuration.Save();
+        var here = ClientState.TerritoryType == shared.ScreenTerritory && (sharedHouse == 0 || sharedHouse == CurrentHouse);
         ChatGui.Print(
-            ClientState.TerritoryType == shared.ScreenTerritory
-                ? "Screen placed from the share code (saved as the \"Imported\" spot)."
-                : "Screen spot saved as \"Imported\" for its zone; it appears when you go there.",
+            here
+                ? "Screen placed where your friend has it."
+                : sharedHouse != 0
+                    ? $"Got your friend's screen spot; it appears when you're in their house ({HouseLocator.Describe(sharedHouse)})."
+                    : "Screen spot saved for its zone; pick it under Screen when you're there.",
             ChatPrefix);
         return true;
     }
 
     private void OnFramework(IFramework framework)
     {
+        // The house id arrives a moment after the zone during loading; either change re-picks the spot.
         var territory = ClientState.TerritoryType;
-        if (territory != lastTerritoryType)
+        var house = HouseLocator.Current();
+        if (territory != lastTerritoryType || house != lastHouse)
         {
-            PlacementPresets.OnTerritoryChanged(Configuration, lastTerritoryType, territory);
+            PlacementPresets.OnTerritoryChanged(Configuration, lastTerritoryType, lastHouse, territory, house);
             lastTerritoryType = territory;
+            lastHouse = house;
             Configuration.Save();
         }
 
@@ -264,7 +275,7 @@ public sealed class Plugin : IDalamudPlugin
                 HighPerformance.SendName();
                 break;
             case "place":
-                Placement.PlaceInFront(ClientState, ObjectTable, Configuration);
+                Placement.PlaceInFront(ClientState, ObjectTable, Configuration, CurrentHouse);
                 ChatGui.Print("ViewInFFXIV screen placed in front of you.", ChatPrefix);
                 break;
             case "screen":

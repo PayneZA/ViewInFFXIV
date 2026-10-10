@@ -42,15 +42,15 @@ public static class PlacementLimits
             ScreenPlacement.ApplyLive(config);
     }
 
-    public static void RemoveFromZone(Configuration config, uint territoryId)
+    public static void RemoveFromZone(Configuration config, uint territoryId, ulong house)
     {
-        PlacementPresets.RemoveActivePreset(config, territoryId);
+        PlacementPresets.RemoveActivePreset(config, territoryId, house);
     }
 }
 
 public sealed class ScreenPlacement
 {
-    public void PlaceInFront(IClientState client, IObjectTable objects, Configuration config)
+    public void PlaceInFront(IClientState client, IObjectTable objects, Configuration config, ulong house)
     {
         var player = objects.LocalPlayer;
         if (player == null)
@@ -65,7 +65,8 @@ public sealed class ScreenPlacement
         config.ScreenTerritory = client.TerritoryType;
         config.ScreenEnabled = true;
         ApplyLive(config);
-        PlacementPresets.SaveActivePreset(config, client.TerritoryType);
+        PlacementPresets.SaveActivePreset(config, client.TerritoryType, house);
+        PlacementPresets.BindActive(config, client.TerritoryType, house);
         config.Save();
     }
 

@@ -32,6 +32,7 @@ internal sealed class YouTubeControl : IDisposable
             videoHeight: (video || {}).videoHeight || 0,
             subs: !!(tr && tr.languageCode), subsAvailable: list.length > 0 || !!(tr && tr.languageCode),
             codec, decodedFrames: q.totalVideoFrames || 0, droppedFrames: q.droppedVideoFrames || 0,
+            playerError: (() => { const e = document.querySelector('.ytp-error, .ytmErrorHost, [class*="ErrorScreen"]'); return e && e.getClientRects().length ? e.innerText.trim().slice(0, 200) : ''; })(),
           };
         })()
         """;
@@ -201,7 +202,9 @@ internal sealed class YouTubeControl : IDisposable
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            await EnsurePlayerAsync(port, cts.Token).ConfigureAwait(false);
+            // The status refresh keeps the player attached; only look for it when there is none yet.
+            if (player is not { IsOpen: true })
+                await EnsurePlayerAsync(port, cts.Token).ConfigureAwait(false);
             await ApplyAudioLockedAsync(cts.Token).ConfigureAwait(false);
         }
         catch

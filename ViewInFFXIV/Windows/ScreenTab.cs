@@ -22,6 +22,8 @@ internal sealed class ScreenTab
 
     private static uint Territory => Plugin.ClientState.TerritoryType;
 
+    private ulong House => plugin.CurrentHouse;
+
     public void Draw()
     {
         DrawPlacement();
@@ -42,7 +44,7 @@ internal sealed class ScreenTab
 
             var half = (width - 8) / 2;
             if (Ui.AccentButton("Place in front of me", new Vector2(half, 34)))
-                plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, Config);
+                plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, Config, House);
             ImGui.SameLine();
             if (ImGui.Button(here ? "Hide screen" : "Show screen", new Vector2(half, 34)))
                 SetShown(!here);
@@ -61,7 +63,8 @@ internal sealed class ScreenTab
             Ui.Dim("— lounge, bedroom, garden…");
 
             var territory = PlacementPresets.FindTerritory(Config, Territory);
-            var presets = territory?.Presets ?? [];
+            var presets = PlacementPresets.Candidates(territory, House);
+            var active = PlacementPresets.Active(Config, Territory, House);
             var names = presets.Select(p => p.Name).ToArray();
             if (names.Length == 0)
             {
@@ -69,28 +72,32 @@ internal sealed class ScreenTab
             }
             else
             {
-                var current = Math.Max(0, Array.FindIndex(names, n => n.Equals(territory!.ActivePresetName, StringComparison.OrdinalIgnoreCase)));
+                var current = active == null ? -1 : Array.FindIndex(names, n => n.Equals(active.Name, StringComparison.OrdinalIgnoreCase));
                 ImGui.SetNextItemWidth(width);
-                if (ImGui.Combo("##spot", ref current, names, names.Length))
+                if (ImGui.Combo("##spot", ref current, names, names.Length) && current >= 0)
                 {
-                    PlacementPresets.SelectPreset(Config, Territory, names[current]);
+                    PlacementPresets.SelectPreset(Config, Territory, names[current], House);
+                    PlacementPresets.BindActive(Config, Territory, House);
                     Config.Save();
                 }
             }
 
+            if (House != 0)
+                Ui.Dim($"Spots here belong to this house ({HouseLocator.Describe(House)}).");
+
             ImGui.SetNextItemWidth(width - 190);
             ImGui.InputTextWithHint("##newspot", "New spot name", ref newSpotName, 64);
             ImGui.SameLine();
-            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Plus, "Save as new") && PlacementPresets.CreatePreset(Config, Territory, newSpotName))
+            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Plus, "Save as new") && PlacementPresets.CreatePreset(Config, Territory, newSpotName, House))
             {
                 newSpotName = "";
                 Config.Save();
             }
 
             ImGui.SameLine();
-            if (ImGuiComponents.IconButton(FontAwesomeIcon.TrashAlt) && territory != null && territory.ActivePresetName.Length > 0)
+            if (ImGuiComponents.IconButton(FontAwesomeIcon.TrashAlt) && active != null)
             {
-                PlacementPresets.DeletePreset(Config, Territory, territory.ActivePresetName);
+                PlacementPresets.DeletePreset(Config, Territory, active.Name, House);
                 Config.Save();
             }
 
@@ -150,7 +157,7 @@ internal sealed class ScreenTab
             ImGui.SameLine();
             if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Times, "Remove from this zone"))
             {
-                PlacementLimits.RemoveFromZone(Config, Territory);
+                PlacementLimits.RemoveFromZone(Config, Territory, House);
                 Config.Save();
             }
         });
@@ -166,7 +173,7 @@ internal sealed class ScreenTab
             if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Copy, "Copy spot code"))
             {
                 ScreenPlacement.EnsureAnchor(Config);
-                ImGui.SetClipboardText(ScreenShareCode.Export(Config));
+                ImGui.SetClipboardText(ScreenShareCode.Export(Config, House));
                 Config.Save();
             }
 
@@ -183,7 +190,7 @@ internal sealed class ScreenTab
     {
         if (shown && !(Config.HasAnchor && Config.ScreenTerritory == Territory))
         {
-            plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, Config);
+            plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, Config, House);
             return;
         }
 
@@ -195,7 +202,7 @@ internal sealed class ScreenTab
     private void SyncSpot()
     {
         if (Territory != 0)
-            PlacementPresets.SaveActivePreset(Config, Territory);
+            PlacementPresets.SaveActivePreset(Config, Territory, House);
     }
 
     /// <summary>A slider that saves the spot when let go.</summary>

@@ -14,6 +14,10 @@ public sealed class WatchQueue
     private string lastVideoId = "";
     private string advancedFrom = "";
 
+    // The video you started yourself. When a video ends, only the person who started it plays the next one,
+    // so two friends with their own Up next lists don't both start something at once.
+    private string startedByMe = "";
+
     public WatchQueue(Plugin plugin)
     {
         this.plugin = plugin;
@@ -25,6 +29,7 @@ public sealed class WatchQueue
 
     public void PlayNow(VideoInfo video)
     {
+        startedByMe = video.Id;
         plugin.HighPerformance.Play(video.Url);
         Remember(video);
     }
@@ -100,7 +105,8 @@ public sealed class WatchQueue
             plugin.Configuration.Save();
         }
 
-        if (playback.Ended && playback.VideoId != advancedFrom && plugin.Configuration.AutoAdvance && UpNext.Count > 0)
+        if (playback.Ended && playback.VideoId == startedByMe && playback.VideoId != advancedFrom
+            && plugin.Configuration.AutoAdvance && UpNext.Count > 0)
         {
             advancedFrom = playback.VideoId;
             Next();

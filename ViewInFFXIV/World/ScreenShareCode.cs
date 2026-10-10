@@ -8,7 +8,8 @@ public static class ScreenShareCode
     private const string LegacyPrefix = "IV1.";
     private const byte Version = 1;
 
-    public static string Export(Configuration config)
+    /// <param name="house">The house the screen is in (0: none); appended so old versions still read the code.</param>
+    public static string Export(Configuration config, ulong house)
     {
         ScreenPlacement.EnsureAnchor(config);
         using var ms = new MemoryStream();
@@ -30,14 +31,18 @@ public static class ScreenShareCode
             writer.Write(config.AnchorY);
             writer.Write(config.AnchorZ);
             writer.Write(config.AnchorYaw);
+            writer.Write(house);
         }
 
         return Prefix + ToBase64Url(ms.ToArray());
     }
 
-    public static bool TryImport(string raw, Configuration config, out string error)
+    public static bool TryImport(string raw, Configuration config, out string error) => TryImport(raw, config, out _, out error);
+
+    public static bool TryImport(string raw, Configuration config, out ulong house, out string error)
     {
         error = "";
+        house = 0;
         if (!TryExtractBytes(raw, out var bytes))
         {
             error = "Not a ViewInFFXIV share code.";
@@ -69,6 +74,8 @@ public static class ScreenShareCode
             config.AnchorY = reader.ReadSingle();
             config.AnchorZ = reader.ReadSingle();
             config.AnchorYaw = WrapAngle(reader.ReadSingle());
+            if (reader.BaseStream.Length - reader.BaseStream.Position >= sizeof(ulong))
+                house = reader.ReadUInt64();
             config.ScreenEnabled = true;
             if (config.HasAnchor)
                 ScreenPlacement.ApplyLive(config);
