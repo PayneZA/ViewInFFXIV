@@ -7,11 +7,13 @@ the room is a [Watch2Gether](https://w2g.tv/) room, and each player's plugin sho
 ## Requirements
 
 - **Windows 10 (2004+) or Windows 11** — the video is captured with Windows.Graphics.Capture on the GPU.
-- **[Brave](https://brave.com/)** — its built-in ad blocking keeps YouTube ads off your wall. The plugin runs its
-  own hidden copy with a separate profile, so your normal browser is untouched. The plugin tells you if it is missing.
+- **A Chromium browser: [Brave](https://brave.com/) (recommended), Google Chrome or Microsoft Edge.** The plugin runs
+  its own hidden copy with a separate profile, so your normal browser is untouched. Brave's built-in ad blocking keeps
+  YouTube and w2g ads off your wall; with Chrome or Edge you will see them. **Automatic** (Settings → Browser) picks
+  Brave, else Chrome, else Edge. Firefox is not supported: it no longer speaks the Chrome DevTools protocol.
 - Dalamud / XIVLauncher. No separate .NET install: the helper runs on XIVLauncher's runtime.
 
-Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture).
+Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), Firefox.
 
 ## Watching together
 
@@ -49,7 +51,8 @@ Everything is in the window; these are for macros and chat.
 | `/viewin cc [on\|off]` / `vol 0-100` | Subtitles and volume — just for you |
 | `/viewin invite` / `show` / `hide` | Copy the invite / show or hide the browser (w2g's own playlist and chat) |
 | `/viewin place` / `screen` / `apply <code>` | Put the screen in front of you / open the Screen tab / use a spot code |
-| `/viewin stop` | Leave the party and close Brave |
+| `/viewin browser auto\|brave\|chrome\|edge` | Pick the browser (switches a running party over) |
+| `/viewin stop` | Leave the party and close the browser |
 | `/viewin bench` | 25-second performance check, results in chat |
 
 Your name in the room is always your character name.
@@ -57,12 +60,12 @@ Your name in the room is always your character name.
 ## How it works
 
 ```
-FFXIV (plugin) ──named pipe──▶ ViewInFFXIV.Host.exe ──DevTools──▶ Brave (hidden, ViewInFFXIV profile) ▶ w2g
+FFXIV (plugin) ──named pipe──▶ ViewInFFXIV.Host.exe ──DevTools──▶ Brave/Chrome/Edge (hidden, own profile) ▶ w2g
       ▲                              │ Windows.Graphics.Capture
       └──── D3D11 shared texture ◀───┘ (1920×1080, keyed mutex, same GPU as the game)
 ```
 
-- The helper starts Brave off-screen (minimising would stop it rendering) and drives w2g through the DevTools
+- The helper starts the browser off-screen (minimising would stop it rendering) and drives w2g through the DevTools
   protocol: rooms, your name, playback, subtitles and the spatial-audio gain/pan (Web Audio inside the player page).
 - While hidden, the w2g player fills the page and the window is sized so the video is exactly 1920×1080; YouTube is
   pinned to the best quality up to 1080p and its own controls are hidden.
@@ -75,8 +78,8 @@ FFXIV (plugin) ──named pipe──▶ ViewInFFXIV.Host.exe ──DevTools─�
 | Project | Role |
 |---------|------|
 | **[ViewInFFXIV](ViewInFFXIV/)** | Dalamud plugin: window, TV controls, search, queue, placement, spatial audio, draws the shared texture. |
-| **[ViewInFFXIV.Host](ViewInFFXIV.Host/)** | Helper process (`ViewInFFXIV.Host.exe`): owns Brave, GPU capture, w2g/YouTube automation. Exits with the game. |
-| **[ViewInFFXIV.Shared](ViewInFFXIV.Shared/)** | Pipe messages shared by both. |
+| **[ViewInFFXIV.Host](ViewInFFXIV.Host/)** | Helper process (`ViewInFFXIV.Host.exe`): owns the browser, GPU capture, w2g/YouTube automation. Exits with the game. |
+| **[ViewInFFXIV.Shared](ViewInFFXIV.Shared/)** | Pipe messages and the supported-browser list, shared by both. |
 
 ## Build
 
@@ -104,6 +107,6 @@ creates `dist/release.zip` (dev-plugin folder). Set `VIEWINFFXIV_INSTANCE=<name>
 | [Dalamud](https://github.com/goatcorp/Dalamud) | Plugin host | [AGPL-3.0](https://github.com/goatcorp/Dalamud/blob/master/LICENSE) |
 | [SharpDX](https://github.com/sharpdx/SharpDX) | Direct3D 11 interop | MIT |
 | [Watch2Gether](https://w2g.tv/) | Watch-party rooms | Their terms |
-| [Brave](https://brave.com/) | Browser | Their terms |
+| [Brave](https://brave.com/), Chrome, Edge | Browser | Their terms |
 
-ViewInFFXIV is not affiliated with Square Enix, Watch2Gether, YouTube, Brave or the Dalamud team.
+ViewInFFXIV is not affiliated with Square Enix, Watch2Gether, YouTube, Brave, Google, Microsoft or the Dalamud team.

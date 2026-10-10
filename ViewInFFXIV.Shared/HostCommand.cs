@@ -13,17 +13,24 @@ public sealed class HostCommand
     [JsonPropertyName("arg2")]
     public string? Arg2 { get; set; }
 
+    [JsonPropertyName("arg3")]
+    public string? Arg3 { get; set; }
+
     public static HostCommand Ping() => new() { Op = "ping" };
 
     public static HostCommand Quit() => new() { Op = "quit" };
 
-    public static HostCommand Managed(string op, string? arg = null, string? arg2 = null) => new() { Op = op, Arg = arg, Arg2 = arg2 };
+    public static HostCommand Managed(string op, string? arg = null, string? arg2 = null, string? arg3 = null) =>
+        new() { Op = op, Arg = arg, Arg2 = arg2, Arg3 = arg3 };
 }
 
-/// <summary>Watch-party commands: the helper launches and drives its own off-screen Brave.</summary>
+/// <summary>Watch-party commands: the helper launches and drives its own off-screen browser.</summary>
 public static class ManagedOps
 {
-    /// <summary>Arg = browser profile folder, Arg2 = the game's GPU adapter LUID (decimal).</summary>
+    /// <summary>
+    /// Arg = browser profile folder, Arg2 = the game's GPU adapter LUID (decimal), Arg3 = browser id
+    /// (<see cref="Browsers"/>; a different browser than the running one replaces it).
+    /// </summary>
     public const string Start = "ffStart";
     public const string Stop = "ffStop";
     public const string Create = "ffCreate";

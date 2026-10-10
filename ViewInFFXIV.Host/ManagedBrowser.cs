@@ -10,7 +10,7 @@ namespace ViewInFFXIV.Host;
 internal sealed record CropRect(float Left, float Top, float Right, float Bottom);
 
 /// <summary>
-/// The watch-party browser: a dedicated Brave instance on the ViewInFFXIV profile, launched with
+/// The watch-party browser: a dedicated Brave/Chrome/Edge instance on its own ViewInFFXIV profile, launched with
 /// anti-throttling flags and parked off-screen so it keeps rendering while nobody can see it.
 /// Minimising would stop rendering, so a minimised window is restored straight back off-screen.
 /// </summary>
@@ -57,6 +57,11 @@ internal sealed class ManagedBrowser : IDisposable
 
     public IntPtr Hwnd { get; private set; }
 
+    /// <summary>The browser running (or last started).</summary>
+    public BrowserInfo? Browser { get; private set; }
+
+    private string BrowserName => Browser?.Name ?? "the browser";
+
     /// <summary>DevTools port of the running instance, 0 when not running.</summary>
     public int Port => port;
 
@@ -82,26 +87,33 @@ internal sealed class ManagedBrowser : IDisposable
 
     public CdpPage Page => page is { IsOpen: true }
         ? page
-        : throw new InvalidOperationException("Lost connection to Brave. Use /viewin start.");
+        : throw new InvalidOperationException($"Lost connection to {BrowserName}. Start or join the party again.");
 
-    public async Task StartAsync(string profileDir, Action<string> progress, CancellationToken ct)
+    public async Task StartAsync(string profileDir, BrowserInfo browser, Action<string> progress, CancellationToken ct)
     {
-        if (IsRunning && page is { IsOpen: true })
+        if (IsRunning && page is { IsOpen: true } && Browser == browser)
             return;
 
         Stop();
-        var exe = BraveLocator.Find()
-            ?? throw new InvalidOperationException("ViewInFFXIV needs the Brave browser. Install it from brave.com, then try again.");
+        Browser = browser;
+        var exe = Browsers.Find(browser)
+            ?? throw new InvalidOperationException($"{browser.Name} is not installed. Pick another browser under Settings.");
 
         var firstRun = !Directory.Exists(Path.Combine(profileDir, "Default"));
         Directory.CreateDirectory(profileDir);
-        SeedLocalState(profileDir);
+        if (browser == Browsers.Brave)
+            SeedLocalState(profileDir);
         var startPage = WriteStartPage(profileDir);
 
         // A Brave left running on this profile (e.g. after a crash) would swallow our launch and ignore the flags.
         var portFile = Path.Combine(profileDir, "DevToolsActivePort");
         if (TryReadPort(portFile, out var stalePort) && await CdpPage.TryCloseBrowserAsync(stalePort, ct).ConfigureAwait(false))
-            await Task.Delay(1500, ct).ConfigureAwait(false);
+        {
+            var closeDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(6);
+            while (DateTime.UtcNow < closeDeadline && await CdpPage.IsAliveAsync(stalePort, ct).ConfigureAwait(false))
+                await Task.Delay(250, ct).ConfigureAwait(false);
+            await Task.Delay(500, ct).ConfigureAwait(false);
+        }
         TryDelete(portFile);
 
         var psi = new ProcessStartInfo(exe) { UseShellExecute = false };
@@ -116,17 +128,19 @@ internal sealed class ManagedBrowser : IDisposable
         psi.ArgumentList.Add($"--window-position={OffscreenX(WindowWidth)},0");
         foreach (var flag in RenderFlags)
             psi.ArgumentList.Add(flag);
+        foreach (var flag in browser.ExtraFlags)
+            psi.ArgumentList.Add(flag);
         // App mode (no tabs or address bar) needs a real page; about:blank silently opens a normal window.
         psi.ArgumentList.Add($"--app={new Uri(startPage).AbsoluteUri}");
-        process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start Brave.");
+        process = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {browser.Name}.");
 
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
         while (Hwnd == IntPtr.Zero || port == 0)
         {
             if (process.HasExited)
-                throw new InvalidOperationException("Brave closed during startup.");
+                throw new InvalidOperationException($"{browser.Name} closed during startup.");
             if (DateTime.UtcNow > deadline)
-                throw new TimeoutException("Brave did not open a window in time.");
+                throw new TimeoutException($"{browser.Name} did not open a window in time.");
 
             if (Hwnd == IntPtr.Zero)
             {
@@ -141,11 +155,24 @@ internal sealed class ManagedBrowser : IDisposable
             await Task.Delay(30, ct).ConfigureAwait(false);
         }
 
-        page = await CdpPage.ConnectAsync(port, ct).ConfigureAwait(false);
+        // Edge reports its DevTools port a moment before its first page exists.
+        var pageDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+        while (true)
+        {
+            try
+            {
+                page = await CdpPage.ConnectAsync(port, ct).ConfigureAwait(false);
+                break;
+            }
+            catch (InvalidOperationException) when (DateTime.UtcNow < pageDeadline && !process.HasExited)
+            {
+                await Task.Delay(250, ct).ConfigureAwait(false);
+            }
+        }
 
-        // A brand-new profile downloads Brave's ad-block lists after launch; pages opened before they
+        // A brand-new Brave profile downloads its ad-block lists after launch; pages opened before they
         // arrive show ads. Give the lists a moment on first run.
-        if (firstRun)
+        if (firstRun && browser == Browsers.Brave)
         {
             progress("Downloading Brave's ad-block lists (first run only)");
             var listDir = Path.Combine(profileDir, AdBlockComponentId);

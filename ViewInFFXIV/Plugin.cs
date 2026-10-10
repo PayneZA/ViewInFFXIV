@@ -19,7 +19,7 @@ public sealed class Plugin : IDalamudPlugin
     private const string AliasCommandName = "/viewinff";
     private const string ChatPrefix = "ViewInFFXIV";
     private const string Usage =
-        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | invite | show | hide | place | screen | apply <code> | stop | bench";
+        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | apply <code> | stop | bench";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -223,6 +223,27 @@ public sealed class Plugin : IDalamudPlugin
     private static bool IsGameUiHidden() =>
         GameGui.GameUiHidden || ClientState.IsGPosing || PluginInterface.UiBuilder.CutsceneActive;
 
+    private void SetBrowser(string id)
+    {
+        if (id != Browsers.Auto && Browsers.ById(id) is null)
+        {
+            ChatGui.Print($"Usage: /viewin browser auto | {string.Join(" | ", Browsers.All.Select(b => b.Id))}", ChatPrefix);
+            return;
+        }
+
+        if (id != Browsers.Auto && Browsers.Find(Browsers.ById(id)!) == null)
+        {
+            ChatGui.PrintError($"{ChatPrefix}: {Browsers.ById(id)!.Name} is not installed.");
+            return;
+        }
+
+        Configuration.Browser = id;
+        Configuration.Save();
+        var browser = HighPerformance.Browser;
+        ChatGui.Print($"Browser: {(id == Browsers.Auto ? $"automatic ({browser?.Name ?? "none installed"})" : browser?.Name)}.", ChatPrefix);
+        HighPerformance.SwitchBrowser();
+    }
+
     private void OnCommand(string command, string args)
     {
         var trimmed = args.Trim();
@@ -281,6 +302,9 @@ public sealed class Plugin : IDalamudPlugin
             case "screen":
                 OpenScreenUi();
                 break;
+            case "browser":
+                SetBrowser(rest.ToLowerInvariant());
+                break;
             case "search" or "yt":
                 if (rest.Length == 0)
                     ChatGui.Print("Usage: /viewin search <words>", ChatPrefix);
@@ -302,7 +326,7 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "stop":
                 HighPerformance.Stop();
-                ChatGui.Print("ViewInFFXIV closed its Brave.", ChatPrefix);
+                ChatGui.Print("Left the party and closed the browser.", ChatPrefix);
                 break;
             default:
                 ChatGui.Print(Usage, ChatPrefix);

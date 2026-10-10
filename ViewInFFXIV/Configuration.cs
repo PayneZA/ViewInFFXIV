@@ -116,6 +116,9 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool AutoAdvance { get; set; } = true;
 
+    /// <summary>"auto" (Brave, else Chrome, else Edge) or a browser id from <see cref="Shared.Browsers"/>.</summary>
+    public string Browser { get; set; } = Shared.Browsers.Auto;
+
     /// <summary>Show play/pause/seek on the TV when you point at it.</summary>
     public bool ScreenControls { get; set; } = true;
 

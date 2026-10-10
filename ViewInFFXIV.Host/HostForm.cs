@@ -14,7 +14,9 @@ internal sealed class HostForm : Form
     private readonly PipeServer pipe;
     private readonly ManagedBrowser managed = new();
     private readonly YouTubeControl youtube = new();
-    private readonly SemaphoreSlim managedLock = new(1, 1);
+    // Browser commands run one after another in the order they arrived (start before join, and so on).
+    private Task managedChain = Task.CompletedTask;
+    private string? startError;
     private readonly System.Windows.Forms.Timer guardTimer = new();
     private readonly System.Threading.Timer pageTimer;
     private readonly int parentPid;
@@ -120,7 +122,7 @@ internal sealed class HostForm : Form
         if (state is "ready" or "busy" && !managed.IsRunning)
         {
             state = "error";
-            error = "Brave was closed. Use /viewin start.";
+            error = $"{managed.Browser?.Name ?? "The browser"} was closed. Start or join the party again.";
         }
 
         var gpu = capture;
@@ -143,6 +145,7 @@ internal sealed class HostForm : Form
             {
                 State = state,
                 Activity = managedActivity,
+                Browser = managed.IsRunning ? managed.Browser?.Name ?? "" : "",
                 Error = error,
                 RoomUrl = roomUrl,
                 Hwnd = managed.Hwnd.ToInt64(),
@@ -184,9 +187,9 @@ internal sealed class HostForm : Form
                 return;
         }
 
-        _ = Task.Run(async () =>
+        // Called on the UI thread in arrival order, so chaining keeps that order.
+        managedChain = managedChain.ContinueWith(async _ =>
         {
-            await managedLock.WaitAsync().ConfigureAwait(false);
             try
             {
                 managedError = null;
@@ -202,9 +205,8 @@ internal sealed class HostForm : Form
             finally
             {
                 managedActivity = "";
-                managedLock.Release();
             }
-        });
+        }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
     }
 
     private async Task ExecuteManagedAsync(HostCommand command)
@@ -217,14 +219,26 @@ internal sealed class HostForm : Form
                 profileDir = string.IsNullOrWhiteSpace(command.Arg) ? profileDir : command.Arg;
                 if (long.TryParse(command.Arg2, out var luid))
                     adapterLuid = luid;
-                if (!managed.IsRunning)
+                var browser = Browsers.ById(command.Arg3) ?? Browsers.Brave;
+                if (!managed.IsRunning || managed.Browser != browser)
                 {
                     if (profileDir == null)
                         throw new InvalidOperationException("No browser profile folder was given.");
 
                     managedState = "starting";
-                    managedActivity = "Starting Brave";
-                    await managed.StartAsync(profileDir, a => managedActivity = a, ct).ConfigureAwait(false);
+                    managedActivity = $"Starting {browser.Name}";
+                    youtube.Reset();
+                    try
+                    {
+                        await managed.StartAsync(profileDir, browser, a => managedActivity = a, ct).ConfigureAwait(false);
+                        startError = null;
+                    }
+                    catch (Exception ex)
+                    {
+                        // Shown instead of the "not running" of the commands queued behind this start.
+                        startError = ex.Message;
+                        throw;
+                    }
                 }
 
                 Invoke(StartCapture);
@@ -273,7 +287,7 @@ internal sealed class HostForm : Form
                 capture.Start(managed.Hwnd);
             lastError = capture.AdapterMatched
                 ? null
-                : "Could not find the game's graphics card, so the screen may stay black. Check that FFXIV and Brave use the same GPU.";
+                : $"Could not find the game's graphics card, so the screen may stay black. Check that FFXIV and {managed.Browser?.Name ?? "the browser"} use the same GPU.";
         }
         catch (Exception ex)
         {
@@ -284,7 +298,7 @@ internal sealed class HostForm : Form
     private void RequireRunning(string activity)
     {
         if (!managed.IsRunning)
-            throw new InvalidOperationException("Brave is not running. Use /viewin start.");
+            throw new InvalidOperationException(startError ?? $"{managed.Browser?.Name ?? "The browser"} is not running. Start or join the party again.");
         managedState = "busy";
         managedActivity = activity;
     }

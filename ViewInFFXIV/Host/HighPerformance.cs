@@ -41,20 +41,40 @@ public sealed partial class HighPerformance
     public string ConnectingActivity =>
         Status.Activity.Length > 0 ? Status.Activity : plugin.Host.HelperAlive && Status.Active ? "Opening the room" : "Starting up";
 
-    public string ProfileDirectory =>
-        Path.Combine(Plugin.PluginInterface.GetPluginConfigDirectory(), "Browser", "Brave");
+    /// <summary>The browser the next start uses (null: none of the supported ones is installed).</summary>
+    public BrowserInfo? Browser => Browsers.Resolve(plugin.Configuration.Browser);
+
+    /// <summary>Each browser keeps its own ViewInFFXIV profile (Brave's is the original "Brave" folder).</summary>
+    private static string ProfileDirectory(BrowserInfo browser) =>
+        Path.Combine(Plugin.PluginInterface.GetPluginConfigDirectory(), "Browser", browser == Browsers.Brave ? "Brave" : browser == Browsers.Chrome ? "Chrome" : "Edge");
 
     public void Start()
     {
         plugin.Host.StartHost();
-        if (Active)
+        var browser = Browser;
+        if (browser == null)
+        {
+            Plugin.ChatGui.PrintError($"{ChatPrefix}: install Brave (recommended), Google Chrome or Microsoft Edge first.");
+            return;
+        }
+
+        if (Active && Status.Browser == browser.Name)
             return;
 
-        // Brave's first window would otherwise pull focus away from the game.
+        // The browser's first window would otherwise pull focus away from the game.
         LockSetForegroundWindow(LsfwLock);
         foregroundLockUntil = DateTime.UtcNow + TimeSpan.FromSeconds(25);
         // The helper must capture on the game's GPU for the texture to be shareable.
-        plugin.Host.Send(HostCommand.Managed(ManagedOps.Start, ProfileDirectory, plugin.Video.AdapterLuid.ToString()));
+        plugin.Host.Send(HostCommand.Managed(ManagedOps.Start, ProfileDirectory(browser), plugin.Video.AdapterLuid.ToString(), browser.Id));
+    }
+
+    /// <summary>Switches to the browser now chosen in Settings, rejoining the party you are in.</summary>
+    public void SwitchBrowser()
+    {
+        var room = Status.RoomUrl.Length > 0 ? Status.RoomUrl : plugin.Configuration.LastRoomUrl;
+        if (!Active || room.Length == 0)
+            return;
+        Join(room);
     }
 
     public void CreateRoom()

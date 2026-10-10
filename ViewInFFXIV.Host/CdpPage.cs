@@ -36,8 +36,10 @@ internal sealed class CdpPage : IDisposable
 
     public static async Task<CdpPage> ConnectAsync(int port, CancellationToken ct)
     {
-        var cdp = await ConnectToTargetAsync(port, (type, _) => type == "page", ct).ConfigureAwait(false)
-            ?? throw new InvalidOperationException("Brave has no page to control.");
+        // Our start page (or a web page), never an internal one like Edge's sync dialog.
+        var cdp = await ConnectToTargetAsync(port, (type, url) => type == "page" && url.Contains("viewinffxiv-start", StringComparison.OrdinalIgnoreCase), ct).ConfigureAwait(false)
+            ?? await ConnectToTargetAsync(port, (type, url) => type == "page" && (url.StartsWith("http", StringComparison.OrdinalIgnoreCase) || url.StartsWith("file:", StringComparison.OrdinalIgnoreCase)), ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("The browser has no page to control.");
         await cdp.SendAsync("Page.enable", null, ct).ConfigureAwait(false);
         // The window lives off-screen and never has OS focus; let the page behave as if it does.
         await cdp.SendAsync("Emulation.setFocusEmulationEnabled", new { enabled = true }, ct).ConfigureAwait(false);
@@ -92,10 +94,24 @@ internal sealed class CdpPage : IDisposable
         }
     }
 
+    /// <summary>A browser still answers on this DevTools port.</summary>
+    public static async Task<bool> IsAliveAsync(int port, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await Http.GetAsync($"http://127.0.0.1:{port}/json/version", ct).ConfigureAwait(false);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
     public async Task<JsonElement> SendAsync(string method, object? parameters, CancellationToken ct)
     {
         if (!IsOpen)
-            throw new InvalidOperationException("Lost connection to Brave.");
+            throw new InvalidOperationException("Lost connection to the browser.");
 
         var id = Interlocked.Increment(ref nextId);
         var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -244,7 +260,7 @@ internal sealed class CdpPage : IDisposable
 
         closed = true;
         foreach (var tcs in pending.Values)
-            tcs.TrySetException(new InvalidOperationException("Lost connection to Brave."));
+            tcs.TrySetException(new InvalidOperationException("Lost connection to the browser."));
         pending.Clear();
     }
 

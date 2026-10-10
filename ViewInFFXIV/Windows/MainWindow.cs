@@ -49,8 +49,8 @@ public sealed partial class MainWindow : Window, IDisposable
 
     private readonly PlayerControls controls;
 
-    private bool? braveFound;
-    private DateTime braveCheckedUtc;
+    private BrowserInfo? browser;
+    private DateTime browserCheckedUtc = DateTime.MinValue;
     private string? clipboardInvite;
     private DateTime clipboardCheckedUtc;
 
@@ -217,9 +217,9 @@ public sealed partial class MainWindow : Window, IDisposable
     {
         DrawProblems();
 
-        if (BraveMissing())
+        if (NoBrowser())
         {
-            DrawGetBrave();
+            DrawGetBrowser();
             return;
         }
 
@@ -263,28 +263,30 @@ public sealed partial class MainWindow : Window, IDisposable
         }, color: Ui.Warn with { W = 0.12f });
     }
 
-    private bool BraveMissing()
+    /// <summary>The browser to use, re-checked every few seconds (someone may be installing one right now).</summary>
+    private bool NoBrowser()
     {
-        if (braveFound == null || (braveFound == false && DateTime.UtcNow - braveCheckedUtc > TimeSpan.FromSeconds(5)))
+        if (DateTime.UtcNow - browserCheckedUtc > TimeSpan.FromSeconds(5))
         {
-            braveFound = BraveLocator.Find() != null;
-            braveCheckedUtc = DateTime.UtcNow;
+            browser = Party.Browser;
+            browserCheckedUtc = DateTime.UtcNow;
         }
 
-        return braveFound == false;
+        return browser == null;
     }
 
-    private void DrawGetBrave()
+    private void DrawGetBrowser()
     {
-        Ui.Card("brave", width =>
+        Ui.Card("browser-missing", width =>
         {
             HeroIcon(FontAwesomeIcon.Download, width);
-            Title("One thing first: Brave", width);
+            Title("One thing first: a browser", width);
             ImGui.TextWrapped(
-                "ViewInFFXIV plays videos through the Brave browser, whose built-in ad blocking keeps YouTube ads off your wall. " +
-                "It runs its own hidden copy with its own profile, so your normal browser is never touched.");
+                "ViewInFFXIV plays videos through Brave, Google Chrome or Microsoft Edge, running its own hidden copy with its " +
+                "own profile (your normal browser is never touched). Brave is the one to get: its built-in ad blocking keeps " +
+                "YouTube ads off your wall.");
             if (Ui.AccentButton("Get Brave", new Vector2(width, 40)))
-                Util.OpenLink(BraveLocator.DownloadUrl);
+                Util.OpenLink(Browsers.BraveDownloadUrl);
             Ui.Dim("Install it, then come back here; this page notices on its own.");
         });
     }
@@ -327,6 +329,13 @@ public sealed partial class MainWindow : Window, IDisposable
 
             ImGui.Spacing();
             Ui.Dim($"You'll appear as {Party.ResolveName() ?? "your character name"}.");
+            if (browser is { BlocksAds: false } other)
+            {
+                Ui.Dim($"Using {other.Name}: YouTube may show ads on the wall. Brave blocks them.");
+                ImGui.SameLine();
+                if (ImGui.SmallButton("Get Brave"))
+                    Util.OpenLink(Browsers.BraveDownloadUrl);
+            }
         });
     }
 
@@ -339,7 +348,8 @@ public sealed partial class MainWindow : Window, IDisposable
             Ui.Spinner(18);
             ImGui.Dummy(new Vector2(0, 4));
             Ui.Centered(Party.ConnectingActivity + "…");
-            Ui.Centered("The very first start downloads Brave's ad-block lists (about 30 seconds).", Ui.TextDim);
+            if (browser == Browsers.Brave)
+                Ui.Centered("The very first start downloads Brave's ad-block lists (about 30 seconds).", Ui.TextDim);
             ImGui.Dummy(new Vector2(0, 12));
         });
     }
@@ -713,11 +723,45 @@ public sealed partial class MainWindow : Window, IDisposable
             }
         });
 
-        Ui.Card("browser", _ =>
+        Ui.Card("browser", width =>
         {
             ImGui.TextUnformatted("Browser");
-            Ui.Dim("ViewInFFXIV runs its own hidden Brave (audio plays from it). Open it to use w2g's own playlist or chat.");
+            Ui.Dim("ViewInFFXIV runs its own hidden copy of the browser, with its own profile; the sound plays from it.");
+
+            var options = new List<(string Id, string Label)> { (Browsers.Auto, $"Automatic ({Party.Browser?.Name ?? "none installed"})") };
+            options.AddRange(Browsers.All.Where(b => Browsers.Find(b) != null).Select(b => (b.Id, b.Name + (b.BlocksAds ? " — blocks ads" : ""))));
+            var index = Math.Max(0, options.FindIndex(o => o.Id == config.Browser));
+            ImGui.SetNextItemWidth(width);
+            if (ImGui.BeginCombo("##browser", options[index].Label))
+            {
+                foreach (var option in options)
+                {
+                    if (ImGui.Selectable(option.Label, option.Id == config.Browser))
+                    {
+                        config.Browser = option.Id;
+                        config.Save();
+                        browserCheckedUtc = DateTime.MinValue;
+                    }
+                }
+
+                ImGui.EndCombo();
+            }
+
             var status = Party.Status;
+            var chosen = Party.Browser;
+            if (Party.Active && chosen != null && status.Browser.Length > 0 && status.Browser != chosen.Name)
+            {
+                Ui.Dim($"Running {status.Browser} right now.");
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"Switch to {chosen.Name}"))
+                    Party.SwitchBrowser();
+            }
+
+            if (chosen is { BlocksAds: false })
+                Ui.Dim($"{chosen.Name} has no ad blocking, so YouTube may show ads. Firefox isn't supported (it no longer speaks the protocol ViewInFFXIV uses).");
+            else
+                Ui.Dim("Firefox isn't supported: it no longer speaks the protocol ViewInFFXIV uses.");
+
             if (Party.Active)
             {
                 if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.ExternalLinkAlt, status.Shown ? "Hide the browser" : "Open the browser"))
@@ -729,12 +773,8 @@ public sealed partial class MainWindow : Window, IDisposable
                 }
 
                 ImGui.SameLine();
-                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Stop, "Close Brave"))
+                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Stop, "Close the browser"))
                     Party.Stop();
-            }
-            else
-            {
-                Ui.Dim("Brave is closed.");
             }
         });
 
@@ -759,7 +799,7 @@ public sealed partial class MainWindow : Window, IDisposable
 
         Ui.Card("about", _ =>
         {
-            Ui.Dim($"ViewInFFXIV {Plugin.PluginInterface.Manifest.AssemblyVersion} · not affiliated with Square Enix, Watch2Gether or Brave.");
+            Ui.Dim($"ViewInFFXIV {Plugin.PluginInterface.Manifest.AssemblyVersion} · not affiliated with Square Enix, Watch2Gether, YouTube or the browser makers.");
         });
     }
 

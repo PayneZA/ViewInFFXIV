@@ -59,6 +59,10 @@ public sealed class ManagedBrowserStatus
     [JsonPropertyName("activity")]
     public string Activity { get; set; } = "";
 
+    /// <summary>Name of the browser the helper runs ("Brave", "Google Chrome", ...); empty while none runs.</summary>
+    [JsonPropertyName("browser")]
+    public string Browser { get; set; } = "";
+
     [JsonPropertyName("error")]
     public string? Error { get; set; }
 
