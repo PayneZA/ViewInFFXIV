@@ -7,10 +7,11 @@ the room is a [Watch2Gether](https://w2g.tv/) room, and each player's plugin sho
 ## Requirements
 
 - **Windows 10 (2004+) or Windows 11** — the video is captured with Windows.Graphics.Capture on the GPU.
-- **A Chromium browser: [Brave](https://brave.com/) (recommended), Google Chrome or Microsoft Edge.** The plugin runs
-  its own hidden copy with a separate profile, so your normal browser is untouched. Brave's built-in ad blocking keeps
-  YouTube and w2g ads off your wall; with Chrome or Edge you will see them. **Automatic** (Settings → Browser) picks
-  Brave, else Chrome, else Edge. Firefox is not supported: it no longer speaks the Chrome DevTools protocol.
+- **[Brave](https://brave.com/)** — ViewInFFXIV is made for Brave. The plugin runs its own hidden copy with a separate
+  profile, so your normal browser is untouched, and Brave's built-in ad blocking keeps ads off your wall.
+  *Google Chrome and Microsoft Edge work on a best-effort basis only: the experience is not guaranteed and they are not
+  supported* (you will also see ads). **Automatic** (Settings → Browser) picks Brave, else Chrome, else Edge. Firefox
+  does not work: it no longer speaks the Chrome DevTools protocol.
 - Dalamud / XIVLauncher. No separate .NET install: the helper runs on XIVLauncher's runtime.
 
 Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), Firefox.

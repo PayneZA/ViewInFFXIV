@@ -280,11 +280,11 @@ public sealed partial class MainWindow : Window, IDisposable
         Ui.Card("browser-missing", width =>
         {
             HeroIcon(FontAwesomeIcon.Download, width);
-            Title("One thing first: a browser", width);
+            Title("One thing first: Brave", width);
             ImGui.TextWrapped(
-                "ViewInFFXIV plays videos through Brave, Google Chrome or Microsoft Edge, running its own hidden copy with its " +
-                "own profile (your normal browser is never touched). Brave is the one to get: its built-in ad blocking keeps " +
-                "YouTube ads off your wall.");
+                "ViewInFFXIV is made for the Brave browser. It runs its own hidden copy with its own profile (your normal " +
+                "browser is never touched), and Brave's built-in ad blocking keeps ads off your wall.");
+            Ui.Dim("Google Chrome and Microsoft Edge also work, best effort only: the experience and support aren't guaranteed.");
             if (Ui.AccentButton("Get Brave", new Vector2(width, 40)))
                 Util.OpenLink(Browsers.BraveDownloadUrl);
             Ui.Dim("Install it, then come back here; this page notices on its own.");
@@ -331,7 +331,7 @@ public sealed partial class MainWindow : Window, IDisposable
             Ui.Dim($"You'll appear as {Party.ResolveName() ?? "your character name"}.");
             if (browser is { BlocksAds: false } other)
             {
-                Ui.Dim($"Using {other.Name}: YouTube may show ads on the wall. Brave blocks them.");
+                Ui.Dim($"Using {other.Name} (best effort): ViewInFFXIV is made for Brave.");
                 ImGui.SameLine();
                 if (ImGui.SmallButton("Get Brave"))
                     Util.OpenLink(Browsers.BraveDownloadUrl);
@@ -729,7 +729,7 @@ public sealed partial class MainWindow : Window, IDisposable
             Ui.Dim("ViewInFFXIV runs its own hidden copy of the browser, with its own profile; the sound plays from it.");
 
             var options = new List<(string Id, string Label)> { (Browsers.Auto, $"Automatic ({Party.Browser?.Name ?? "none installed"})") };
-            options.AddRange(Browsers.All.Where(b => Browsers.Find(b) != null).Select(b => (b.Id, b.Name + (b.BlocksAds ? " — blocks ads" : ""))));
+            options.AddRange(Browsers.All.Where(b => Browsers.Find(b) != null).Select(b => (b.Id, b.Name + (b == Browsers.Brave ? " — recommended" : " — best effort"))));
             var index = Math.Max(0, options.FindIndex(o => o.Id == config.Browser));
             ImGui.SetNextItemWidth(width);
             if (ImGui.BeginCombo("##browser", options[index].Label))
@@ -757,10 +757,14 @@ public sealed partial class MainWindow : Window, IDisposable
                     Party.SwitchBrowser();
             }
 
-            if (chosen is { BlocksAds: false })
-                Ui.Dim($"{chosen.Name} has no ad blocking, so YouTube may show ads. Firefox isn't supported (it no longer speaks the protocol ViewInFFXIV uses).");
-            else
-                Ui.Dim("Firefox isn't supported: it no longer speaks the protocol ViewInFFXIV uses.");
+            if (chosen != null && chosen != Browsers.Brave)
+            {
+                ImGui.PushStyleColor(ImGuiCol.Text, Ui.Warn);
+                ImGui.TextWrapped($"ViewInFFXIV is made for Brave. {chosen.Name} works on a best-effort basis: the experience and support aren't guaranteed, and without Brave's ad blocking you will see ads.");
+                ImGui.PopStyleColor();
+            }
+
+            Ui.Dim("Made for Brave; Chrome and Edge best effort. Firefox isn't supported.");
 
             if (Party.Active)
             {
