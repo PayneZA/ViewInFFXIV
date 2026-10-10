@@ -37,6 +37,9 @@ public static class ManagedOps
     /// <summary>Playback control; see <see cref="PlaybackCommands"/> for the argument format.</summary>
     public const string Control = "ffControl";
 
+    /// <summary>Spatial audio: Arg = gain 0..1, Arg2 = pan -1..1 (invariant culture), applied on top of the volume.</summary>
+    public const string Audio = "ffAudio";
+
     public static bool IsManaged(string op) => op.StartsWith("ff", StringComparison.Ordinal);
 }
 

@@ -26,7 +26,7 @@ internal sealed class YouTubeControl : IDisposable
           let codec = '';
           try { codec = (mp.getStatsForNerds && mp.getStatsForNerds().codecs) || ''; } catch (e) { }
           return {
-            id: d.video_id || '', title: d.title || '',
+            id: d.video_id || '', title: d.title || '', author: d.author || '',
             position: mp.getCurrentTime() || 0, duration: mp.getDuration() || 0, state: mp.getPlayerState(),
             volume: mp.isMuted() ? 0 : mp.getVolume(),
             videoHeight: (video || {}).videoHeight || 0,
@@ -62,6 +62,55 @@ internal sealed class YouTubeControl : IDisposable
         }
         return true;
         """;
+
+    // The wall shows only the picture: YouTube's own title bar, controls, end-screen tiles, watermark and
+    // play/pause flash are hidden. Errors ("Video unavailable") and subtitles stay visible.
+    private const string HideChromeScript = """
+        (() => {
+          if (document.getElementById('viewinffxiv-clean-2')) return true;
+          const style = document.createElement('style');
+          style.id = 'viewinffxiv-clean-2';
+          // #player-controls / #bottom-sheet-wrapper: the 2026 embed controls; .ytp-*: the classic player.
+          style.textContent = `
+            #player-controls, #bottom-sheet-wrapper, .ytp-unmute,
+            .ytp-chrome-top, .ytp-chrome-bottom, .ytp-gradient-top, .ytp-gradient-bottom, .ytp-pause-overlay,
+            .ytp-watermark, .ytp-youtube-button, .ytp-show-cards-title, .ytp-ce-element, .ytp-cards-teaser,
+            .ytp-cards-button, .ytp-paid-content-overlay, .ytp-impression-link, .ytp-large-play-button,
+            .ytp-bezel, .ytp-bezel-text-wrapper, .html5-endscreen, .ytp-endscreen-content, .ytp-autonav-endscreen,
+            .ytp-tooltip, .ytp-contextmenu, .iv-branding, .annotation, .ytp-featured-product, .ytp-overflow-panel
+            { display: none !important; }`;
+          (document.head || document.documentElement).append(style);
+          return true;
+        })()
+        """;
+
+    // Spatial audio: the video's sound goes through a gain and a stereo panner (Web Audio) in the player page.
+    private const string AudioScript = """
+        (() => {
+          const v = document.querySelector('video');
+          if (!v) return false;
+          let a = window.__viewinffxivAudio;
+          if (!a || a.video !== v) {
+            const ctx = a ? a.ctx : new AudioContext();
+            const source = ctx.createMediaElementSource(v);
+            const gain = ctx.createGain();
+            const pan = ctx.createStereoPanner();
+            source.connect(gain).connect(pan).connect(ctx.destination);
+            a = window.__viewinffxivAudio = { ctx, video: v, gain, pan };
+          }
+          if (a.ctx.state === 'suspended') a.ctx.resume();
+          const t = a.ctx.currentTime;
+          a.gain.gain.setTargetAtTime(GAIN, t, 0.15);
+          a.pan.pan.setTargetAtTime(PAN, t, 0.15);
+          return true;
+        })()
+        """;
+
+    private CdpPage? cleanedPlayer;
+    private CdpPage? audioPlayer;
+    private double wantGain = 1;
+    private double wantPan;
+    private volatile bool audioDirty;
 
     public PlaybackStatus? Status { get; private set; }
 
@@ -134,6 +183,56 @@ internal sealed class YouTubeControl : IDisposable
         }
     }
 
+    /// <summary>Remembers the spatial audio values; <see cref="ApplyAudioAsync"/> or the next refresh applies them.</summary>
+    public void SetAudio(string? gain, string? pan)
+    {
+        if (double.TryParse(gain, NumberStyles.Float, CultureInfo.InvariantCulture, out var g) && double.IsFinite(g))
+            wantGain = Math.Clamp(g, 0, 1);
+        if (double.TryParse(pan, NumberStyles.Float, CultureInfo.InvariantCulture, out var p) && double.IsFinite(p))
+            wantPan = Math.Clamp(p, -1, 1);
+        audioDirty = true;
+    }
+
+    public async Task ApplyAudioAsync(int port)
+    {
+        if (port == 0 || !await gate.WaitAsync(0).ConfigureAwait(false))
+            return; // the refresh running now applies it
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            await EnsurePlayerAsync(port, cts.Token).ConfigureAwait(false);
+            await ApplyAudioLockedAsync(cts.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            // the next refresh tries again
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task ApplyAudioLockedAsync(CancellationToken ct)
+    {
+        if (player == null || (!audioDirty && audioPlayer == player))
+            return;
+        // Untouched pages play at full volume, centred: only build the audio graph once spatial audio is used.
+        if (audioPlayer != player && wantGain >= 0.999 && Math.Abs(wantPan) < 0.001)
+        {
+            audioDirty = false;
+            return;
+        }
+
+        audioDirty = false;
+        var script = AudioScript.Replace("GAIN", Js(wantGain)).Replace("PAN", Js(wantPan));
+        if (await player.EvalAsync(script, ct).ConfigureAwait(false) is { ValueKind: JsonValueKind.True })
+            audioPlayer = player;
+        else
+            audioDirty = true;
+    }
+
     public void Reset()
     {
         Status = null;
@@ -150,6 +249,24 @@ internal sealed class YouTubeControl : IDisposable
         {
             Status = null;
             return;
+        }
+
+        if (cleanedPlayer != player)
+        {
+            await player.EvalAsync(HideChromeScript, ct).ConfigureAwait(false);
+            cleanedPlayer = player;
+        }
+
+        if (audioDirty || audioPlayer != player)
+        {
+            try
+            {
+                await ApplyAudioLockedAsync(ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                audioDirty = true;
+            }
         }
 
         var value = await player.EvalAsync(StateScript, ct).ConfigureAwait(false);
@@ -207,7 +324,9 @@ internal sealed class YouTubeControl : IDisposable
             }
         }
         // 1 = playing, 3 = buffering; everything else (paused, ended, cued, unstarted) shows as paused.
-        status.Paused = v.GetProperty("state").GetInt32() is not (1 or 3);
+        var state = v.GetProperty("state").GetInt32();
+        status.Paused = state is not (1 or 3);
+        status.Ended = state == 0;
         // The track list only fills once YouTube's caption module loads, so assume subtitles exist
         // until turning them on proved otherwise.
         status.SubtitlesAvailable |= id != noSubtitlesVideo;

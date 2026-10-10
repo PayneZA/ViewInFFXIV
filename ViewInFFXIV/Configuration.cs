@@ -1,5 +1,6 @@
 using System.Numerics;
 using Dalamud.Configuration;
+using ViewInFFXIV.Media;
 
 namespace ViewInFFXIV;
 
@@ -100,6 +101,23 @@ public sealed class Configuration : IPluginConfiguration
     public int Volume { get; set; } = 100;
 
     public string LastRoomUrl { get; set; } = "";
+
+    /// <summary>Your "Up next" list; the first one starts when the room's video ends.</summary>
+    public List<VideoInfo> UpNext { get; set; } = [];
+
+    /// <summary>Recently watched, newest first.</summary>
+    public List<VideoInfo> History { get; set; } = [];
+
+    public bool AutoAdvance { get; set; } = true;
+
+    /// <summary>Show play/pause/seek on the TV when you point at it.</summary>
+    public bool ScreenControls { get; set; } = true;
+
+    /// <summary>Sound comes from the TV: fades with distance, pans with the camera, silent outside its zone.</summary>
+    public bool SpatialAudio { get; set; } = true;
+
+    /// <summary>Yalms past the screen over which the sound fades out.</summary>
+    public float HearingRange { get; set; } = 20f;
 
     public Vector3 ScreenPosition => new(ScreenX, ScreenY, ScreenZ);
 

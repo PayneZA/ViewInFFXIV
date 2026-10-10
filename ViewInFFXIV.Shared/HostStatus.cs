@@ -81,8 +81,16 @@ public sealed class ManagedBrowserStatus
 /// <summary>State of the YouTube player in the room (null when nothing is loaded).</summary>
 public sealed class PlaybackStatus
 {
+    /// <summary>YouTube video id.</summary>
+    [JsonPropertyName("id")]
+    public string VideoId { get; set; } = "";
+
     [JsonPropertyName("title")]
     public string Title { get; set; } = "";
+
+    /// <summary>Channel name.</summary>
+    [JsonPropertyName("author")]
+    public string Author { get; set; } = "";
 
     [JsonPropertyName("position")]
     public double Position { get; set; }
@@ -92,6 +100,10 @@ public sealed class PlaybackStatus
 
     [JsonPropertyName("paused")]
     public bool Paused { get; set; }
+
+    /// <summary>The video played to the end.</summary>
+    [JsonPropertyName("ended")]
+    public bool Ended { get; set; }
 
     [JsonPropertyName("volume")]
     public int Volume { get; set; }

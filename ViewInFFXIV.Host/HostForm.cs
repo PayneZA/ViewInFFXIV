@@ -163,6 +163,10 @@ internal sealed class HostForm : Form
             case ManagedOps.Hide:
                 managed.Park();
                 return;
+            case ManagedOps.Audio:
+                youtube.SetAudio(command.Arg, command.Arg2);
+                _ = youtube.ApplyAudioAsync(managed.Port);
+                return;
             case ManagedOps.Control:
                 // Playback must feel instant, so it does not queue behind room/name scripts.
                 _ = Task.Run(async () =>

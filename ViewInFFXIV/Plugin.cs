@@ -6,6 +6,7 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using ViewInFFXIV.Diagnostics;
 using ViewInFFXIV.Host;
+using ViewInFFXIV.Media;
 using ViewInFFXIV.Shared;
 using ViewInFFXIV.Windows;
 using ViewInFFXIV.World;
@@ -18,7 +19,7 @@ public sealed class Plugin : IDalamudPlugin
     private const string AliasCommandName = "/viewinff";
     private const string ChatPrefix = "ViewInFFXIV";
     private const string Usage =
-        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | invite | show | hide | place | apply <code> | stop | bench";
+        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | invite | show | hide | place | screen | apply <code> | stop | bench";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -28,6 +29,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
+    [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
 
     public Configuration Configuration { get; }
 
@@ -43,8 +45,17 @@ public sealed class Plugin : IDalamudPlugin
 
     public Benchmark Benchmark { get; }
 
-    private readonly RemoteWindow placementWindow;
-    private readonly HighPerformanceWindow mainWindow;
+    public WatchQueue Queue { get; }
+
+    public ThumbnailCache Thumbnails { get; }
+
+    public SpatialAudio Audio { get; }
+
+    public bool MainWindowOpen => mainWindow.IsOpen;
+
+    private readonly ScreenOverlay screenOverlay;
+
+    private readonly MainWindow mainWindow;
     private readonly object videoLock = new();
     private SharedVideo? video;
     private uint lastTerritoryType;
@@ -69,11 +80,13 @@ public sealed class Plugin : IDalamudPlugin
 
         HighPerformance = new HighPerformance(this);
         Benchmark = new Benchmark(this);
+        Queue = new WatchQueue(this);
+        Thumbnails = new ThumbnailCache(TextureProvider, Log);
+        Audio = new SpatialAudio(this);
+        screenOverlay = new ScreenOverlay(this);
 
-        mainWindow = new HighPerformanceWindow(this);
+        mainWindow = new MainWindow(this);
         WindowSystem.AddWindow(mainWindow);
-        placementWindow = new RemoteWindow(this);
-        WindowSystem.AddWindow(placementWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand) { HelpMessage = $"Open ViewInFFXIV. {Usage}" });
         CommandManager.AddHandler(AliasCommandName, new CommandInfo(OnCommand) { HelpMessage = "Same as /viewin.", ShowInHelp = false });
@@ -104,7 +117,8 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleMainUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
         WindowSystem.RemoveAllWindows();
-        placementWindow.Dispose();
+        mainWindow.Dispose();
+        Thumbnails.Dispose();
         Renderer.Dispose();
         Benchmark.Dispose();
         Host.Dispose();
@@ -115,31 +129,36 @@ public sealed class Plugin : IDalamudPlugin
 
     public void ToggleMainUi() => mainWindow.Toggle();
 
-    public void TogglePlacementUi() => placementWindow.Toggle();
+    public void OpenScreenUi() => mainWindow.Open(MainWindow.Tab.Screen);
 
     internal void ApplyUiHidePolicy()
     {
         PluginInterface.UiBuilder.DisableAutomaticUiHide = Configuration.KeepScreenWhenUiHidden;
     }
 
-    public void ApplyShareCode(string raw)
+    /// <summary>Applies a VIF1 placement code as the "Imported" spot of its zone. Returns false if it is not one.</summary>
+    public bool ApplyShareCode(string raw)
     {
-        if (!ScreenShareCode.TryImport(raw, Configuration, out var error))
+        var shared = new Configuration();
+        if (!ScreenShareCode.TryImport(raw, shared, out var error))
         {
             ChatGui.PrintError($"{ChatPrefix}: {error}");
-            return;
+            return false;
+        }
+
+        if (!PlacementPresets.ImportShared(Configuration, shared, ClientState.TerritoryType))
+        {
+            ChatGui.PrintError($"{ChatPrefix}: that zone already has {PlacementPresets.MaxPresetsPerTerritory} saved spots; delete one first.");
+            return false;
         }
 
         Configuration.Save();
-        PlacementPresets.ApplyImportedShareCode(Configuration);
-        Configuration.Save();
-        ChatGui.Print("ViewInFFXIV screen applied from share code.", ChatPrefix);
-        if (ClientState.TerritoryType != Configuration.ScreenTerritory)
-        {
-            ChatGui.Print(
-                "You are in a different zone than this code. Housing interiors differ by ward — re-place if it looks wrong.",
-                ChatPrefix);
-        }
+        ChatGui.Print(
+            ClientState.TerritoryType == shared.ScreenTerritory
+                ? "Screen placed from the share code (saved as the \"Imported\" spot)."
+                : "Screen spot saved as \"Imported\" for its zone; it appears when you go there.",
+            ChatPrefix);
+        return true;
     }
 
     private void OnFramework(IFramework framework)
@@ -154,6 +173,8 @@ public sealed class Plugin : IDalamudPlugin
 
         Host.Tick();
         HighPerformance.Tick();
+        Queue.Tick(HighPerformance.Playback);
+        Audio.Tick();
     }
 
     private void Draw()
@@ -176,6 +197,8 @@ public sealed class Plugin : IDalamudPlugin
 
         if (!ShouldHidePluginWindows())
             WindowSystem.Draw();
+        if (!IsGameUiHidden())
+            screenOverlay.Draw();
 
         if (Benchmark.SkipRender)
             Renderer.Hide();
@@ -203,9 +226,9 @@ public sealed class Plugin : IDalamudPlugin
             case "start":
                 HighPerformance.Start();
                 break;
-            case "create":
-                HighPerformance.CreateRoom();
-                ChatGui.Print("Creating a w2g room…", ChatPrefix);
+            case "create" or "party":
+                HighPerformance.StartParty();
+                ChatGui.Print("Starting a watch party…", ChatPrefix);
                 break;
             case "join":
                 HighPerformance.Join(rest.Length > 0 ? rest : Configuration.LastRoomUrl);
@@ -243,6 +266,19 @@ public sealed class Plugin : IDalamudPlugin
             case "place":
                 Placement.PlaceInFront(ClientState, ObjectTable, Configuration);
                 ChatGui.Print("ViewInFFXIV screen placed in front of you.", ChatPrefix);
+                break;
+            case "screen":
+                OpenScreenUi();
+                break;
+            case "search" or "yt":
+                if (rest.Length == 0)
+                    ChatGui.Print("Usage: /viewin search <words>", ChatPrefix);
+                else
+                    mainWindow.Search(rest);
+                break;
+            case "next":
+                if (!Queue.Next())
+                    ChatGui.Print("Up next is empty.", ChatPrefix);
                 break;
             case "apply":
                 if (rest.Length == 0)

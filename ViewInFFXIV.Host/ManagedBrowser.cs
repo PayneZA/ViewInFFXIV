@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Win32;
 using ViewInFFXIV.Shared;
 
 namespace ViewInFFXIV.Host;
@@ -85,31 +84,13 @@ internal sealed class ManagedBrowser : IDisposable
         ? page
         : throw new InvalidOperationException("Lost connection to Brave. Use /viewin start.");
 
-    public static string? FindBrave()
-    {
-        foreach (var root in new[] { Registry.CurrentUser, Registry.LocalMachine })
-        {
-            using var key = root.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\brave.exe");
-            if (key?.GetValue(null) is string path && File.Exists(path))
-                return path;
-        }
-
-        string[] candidates =
-        [
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"BraveSoftware\Brave-Browser\Application\brave.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"BraveSoftware\Brave-Browser\Application\brave.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"BraveSoftware\Brave-Browser\Application\brave.exe"),
-        ];
-        return candidates.FirstOrDefault(File.Exists);
-    }
-
     public async Task StartAsync(string profileDir, Action<string> progress, CancellationToken ct)
     {
         if (IsRunning && page is { IsOpen: true })
             return;
 
         Stop();
-        var exe = FindBrave()
+        var exe = BraveLocator.Find()
             ?? throw new InvalidOperationException("ViewInFFXIV needs the Brave browser. Install it from brave.com, then try again.");
 
         var firstRun = !Directory.Exists(Path.Combine(profileDir, "Default"));

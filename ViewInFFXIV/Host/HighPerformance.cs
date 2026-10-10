@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using ViewInFFXIV.Shared;
+using ViewInFFXIV.World;
 
 namespace ViewInFFXIV.Host;
 
@@ -16,6 +17,8 @@ public sealed partial class HighPerformance
     private string? lastError;
     private bool bringToFront;
     private bool preferencesApplied;
+    private bool creatingRoom;
+    private DateTime connectingUntil = DateTime.MinValue;
     private DateTime foregroundLockUntil = DateTime.MinValue;
 
     public HighPerformance(Plugin plugin)
@@ -29,6 +32,14 @@ public sealed partial class HighPerformance
     public ManagedBrowserStatus Status => plugin.Host.Status.Managed;
 
     public bool Active => plugin.Host.HelperAlive && Status.Active;
+
+    /// <summary>A party was started or joined and the room is not there yet (helper and Brave starting up).</summary>
+    public bool Connecting =>
+        DateTime.UtcNow < connectingUntil && Status.RoomUrl.Length == 0 && string.IsNullOrEmpty(Status.Error) && Status.State != "error";
+
+    /// <summary>What is happening right now, for the "getting ready" screen.</summary>
+    public string ConnectingActivity =>
+        Status.Activity.Length > 0 ? Status.Activity : plugin.Host.HelperAlive && Status.Active ? "Opening the room" : "Starting up";
 
     public string ProfileDirectory =>
         Path.Combine(Plugin.PluginInterface.GetPluginConfigDirectory(), "Browser", "Brave");
@@ -49,22 +60,66 @@ public sealed partial class HighPerformance
     public void CreateRoom()
     {
         Start();
+        creatingRoom = true;
+        connectingUntil = DateTime.UtcNow + TimeSpan.FromSeconds(90);
         plugin.Host.Send(HostCommand.Managed(ManagedOps.Create));
         SendName();
     }
 
-    public void Join(string text)
+    /// <summary>One click: put the screen up (in front of you, if this zone has none yet) and create a room.</summary>
+    public void StartParty()
+    {
+        var config = plugin.Configuration;
+        if (!plugin.Renderer.WillDraw)
+        {
+            if (config.ScreenTerritory == Plugin.ClientState.TerritoryType && config.HasAnchor)
+            {
+                config.ScreenEnabled = true;
+                PlacementPresets.SaveActivePreset(config, Plugin.ClientState.TerritoryType);
+                config.Save();
+            }
+            else
+            {
+                plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, config);
+            }
+        }
+
+        CreateRoom();
+    }
+
+    /// <summary>Joins the w2g room in an invite; a screen spot in the same invite is saved and used too.</summary>
+    public bool Join(string text)
     {
         var link = FindW2gLink(text);
         if (link == null)
         {
             Plugin.ChatGui.PrintError($"{ChatPrefix}: paste a w2g.tv invite link, e.g. /viewin join https://w2g.tv/?r=…");
-            return;
+            return false;
         }
 
+        if (text.Contains(ScreenShareCode.Prefix, StringComparison.OrdinalIgnoreCase))
+            plugin.ApplyShareCode(text);
+
         Start();
+        creatingRoom = false;
+        connectingUntil = DateTime.UtcNow + TimeSpan.FromSeconds(90);
         // The name travels with the join so it goes straight into w2g's guest welcome screen.
         plugin.Host.Send(HostCommand.Managed(ManagedOps.Join, link, ResolveName()));
+        return true;
+    }
+
+    /// <summary>
+    /// What friends paste to join: the room link, plus your screen spot when the screen is up in this zone
+    /// (their plugin puts their screen in the same place). The link comes first so it also works in a browser.
+    /// </summary>
+    public string BuildInvite()
+    {
+        var config = plugin.Configuration;
+        var link = Status.RoomUrl;
+        if (link.Length == 0 || !plugin.Renderer.WillDraw)
+            return link;
+        ScreenPlacement.EnsureAnchor(config);
+        return $"{link} {ScreenShareCode.Export(config)}";
     }
 
     public void Play(string text)
@@ -163,6 +218,7 @@ public sealed partial class HighPerformance
     {
         plugin.Host.StopHost();
         bringToFront = false;
+        connectingUntil = DateTime.MinValue;
     }
 
     public void CopyInvite()
@@ -173,8 +229,8 @@ public sealed partial class HighPerformance
             return;
         }
 
-        PendingClipboard = Status.RoomUrl;
-        Plugin.ChatGui.Print($"Invite link copied: {Status.RoomUrl}", ChatPrefix);
+        PendingClipboard = BuildInvite();
+        Plugin.ChatGui.Print($"Invite copied — friends paste it into /viewin join: {Status.RoomUrl}", ChatPrefix);
     }
 
     /// <summary>Your w2g name is always your character name.</summary>
@@ -204,8 +260,17 @@ public sealed partial class HighPerformance
             lastRoomUrl = status.RoomUrl;
             plugin.Configuration.LastRoomUrl = status.RoomUrl;
             plugin.Configuration.Save();
-            PendingClipboard = status.RoomUrl;
-            Plugin.ChatGui.Print($"w2g room ready — invite link copied to clipboard: {status.RoomUrl}", ChatPrefix);
+            if (creatingRoom)
+            {
+                // Your own new room: the invite goes straight to the clipboard. Joining keeps your clipboard.
+                creatingRoom = false;
+                PendingClipboard = BuildInvite();
+                Plugin.ChatGui.Print($"Watch party ready — invite copied, paste it to your friends: {status.RoomUrl}", ChatPrefix);
+            }
+            else
+            {
+                Plugin.ChatGui.Print($"Joined the watch party: {status.RoomUrl}", ChatPrefix);
+            }
         }
         else if (status.RoomUrl.Length == 0)
         {

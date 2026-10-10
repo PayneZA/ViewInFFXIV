@@ -185,34 +185,36 @@ public static class PlacementPresets
         territory.ActivePresetName = preset.Name;
     }
 
-    public static void ApplyImportedShareCode(Configuration config)
+    /// <summary>
+    /// Stores a shared placement (decoded into <paramref name="shared"/>) as the "Imported" spot of its zone and
+    /// makes it that zone's active spot. Your own spots are never overwritten; the screen moves now only when
+    /// you are in that zone. Returns false when the zone already has the maximum number of spots.
+    /// </summary>
+    public static bool ImportShared(Configuration config, Configuration shared, uint currentTerritory)
     {
-        if (config.ScreenTerritory == 0)
-            return;
+        var territoryId = shared.ScreenTerritory;
+        if (territoryId == 0)
+            return false;
 
-        var territory = GetOrCreateTerritory(config, config.ScreenTerritory);
-        var preset = !string.IsNullOrWhiteSpace(territory.ActivePresetName)
-            ? FindPreset(territory, territory.ActivePresetName)
-            : null;
+        // Keep any unsaved slider changes of the spot you are leaving.
+        if (currentTerritory == territoryId)
+            SaveActivePreset(config, territoryId);
 
+        var territory = GetOrCreateTerritory(config, territoryId);
+        var preset = FindPreset(territory, ImportedPresetName);
         if (preset == null)
         {
-            preset = FindPreset(territory, ImportedPresetName);
-            if (preset == null && territory.Presets.Count >= MaxPresetsPerTerritory)
-            {
-                SaveActivePreset(config, config.ScreenTerritory);
-                return;
-            }
-
-            if (preset == null)
-            {
-                preset = new PlacementPreset { Name = ImportedPresetName };
-                territory.Presets.Add(preset);
-            }
+            if (territory.Presets.Count >= MaxPresetsPerTerritory)
+                return false;
+            preset = new PlacementPreset { Name = ImportedPresetName };
+            territory.Presets.Add(preset);
         }
 
+        CopyConfigToPreset(shared, preset);
         territory.ActivePresetName = preset.Name;
-        CopyConfigToPreset(config, preset);
+        if (currentTerritory == territoryId)
+            ApplyPresetToConfig(config, territoryId, preset);
+        return true;
     }
 
     private static void ClearLivePlacement(Configuration config, uint territoryId)
