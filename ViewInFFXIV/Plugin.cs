@@ -30,6 +30,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
+    [PluginService] internal static INotificationManager Notifications { get; private set; } = null!;
 
     public Configuration Configuration { get; }
 
@@ -147,25 +148,24 @@ public sealed class Plugin : IDalamudPlugin
         var shared = new Configuration();
         if (!ScreenShareCode.TryImport(raw, shared, out var sharedHouse, out var error))
         {
-            ChatGui.PrintError($"{ChatPrefix}: {error}");
+            Notify.Error("Couldn't use that screen spot", error);
             return false;
         }
 
         if (!PlacementPresets.ImportShared(Configuration, shared, sharedHouse, ClientState.TerritoryType, CurrentHouse))
         {
-            ChatGui.PrintError($"{ChatPrefix}: that zone already has {PlacementPresets.MaxPresetsPerTerritory} saved spots; delete one first.");
+            Notify.Error("Couldn't save the screen spot", $"That zone already has {PlacementPresets.MaxPresetsPerTerritory} saved spots; delete one under Screen first.");
             return false;
         }
 
         Configuration.Save();
         var here = ClientState.TerritoryType == shared.ScreenTerritory && (sharedHouse == 0 || sharedHouse == CurrentHouse);
-        ChatGui.Print(
-            here
-                ? "Screen placed where your friend has it."
-                : sharedHouse != 0
-                    ? $"Got your friend's screen spot; it appears when you're in their house ({HouseLocator.Describe(sharedHouse)})."
-                    : "Screen spot saved for its zone; pick it under Screen when you're there.",
-            ChatPrefix);
+        if (here)
+            Notify.Success("Screen placed where your friend has it");
+        else if (sharedHouse != 0)
+            Notify.Info("Got your friend's screen spot", $"It appears when you're in their house ({HouseLocator.Describe(sharedHouse)}).");
+        else
+            Notify.Info("Screen spot saved", "Pick it under Screen when you're in that zone.");
         return true;
     }
 
@@ -233,14 +233,14 @@ public sealed class Plugin : IDalamudPlugin
 
         if (id != Browsers.Auto && Browsers.Find(Browsers.ById(id)!) == null)
         {
-            ChatGui.PrintError($"{ChatPrefix}: {Browsers.ById(id)!.Name} is not installed.");
+            ChatGui.Print($"{Browsers.ById(id)!.Name} is not installed.", ChatPrefix);
             return;
         }
 
         Configuration.Browser = id;
         Configuration.Save();
         var browser = HighPerformance.Browser;
-        ChatGui.Print($"Browser: {(id == Browsers.Auto ? $"automatic ({browser?.Name ?? "none installed"})" : browser?.Name)}.", ChatPrefix);
+        Notify.Info($"Browser: {(id == Browsers.Auto ? $"automatic ({browser?.Name ?? "none installed"})" : browser?.Name)}");
         HighPerformance.SwitchBrowser();
     }
 
@@ -260,7 +260,6 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "create" or "party":
                 HighPerformance.StartParty();
-                ChatGui.Print("Starting a watch party…", ChatPrefix);
                 break;
             case "join":
                 HighPerformance.Join(rest.Length > 0 ? rest : Configuration.LastRoomUrl);
@@ -281,7 +280,7 @@ public sealed class Plugin : IDalamudPlugin
                 if (int.TryParse(rest, out var volume))
                     HighPerformance.Volume(volume);
                 else
-                    ChatGui.PrintError($"{ChatPrefix}: /viewin vol 0-100");
+                    ChatGui.Print("Usage: /viewin vol 0-100", ChatPrefix);
                 break;
             case "invite":
                 HighPerformance.CopyInvite();
@@ -297,7 +296,7 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "place":
                 Placement.PlaceInFront(ClientState, ObjectTable, Configuration, CurrentHouse);
-                ChatGui.Print("ViewInFFXIV screen placed in front of you.", ChatPrefix);
+                Notify.Success("Screen placed in front of you");
                 break;
             case "screen":
                 OpenScreenUi();
@@ -313,7 +312,7 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "next":
                 if (!Queue.Next())
-                    ChatGui.Print("Up next is empty.", ChatPrefix);
+                    Notify.Info("Up next is empty");
                 break;
             case "apply":
                 if (rest.Length == 0)
@@ -326,7 +325,7 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "stop":
                 HighPerformance.Stop();
-                ChatGui.Print("Left the party and closed the browser.", ChatPrefix);
+                Notify.Info("Left the party", "The browser is closed.");
                 break;
             default:
                 ChatGui.Print(Usage, ChatPrefix);

@@ -54,7 +54,7 @@ public sealed partial class HighPerformance
         var browser = Browser;
         if (browser == null)
         {
-            Plugin.ChatGui.PrintError($"{ChatPrefix}: install Brave (recommended), Google Chrome or Microsoft Edge first.");
+            Notify.Error("No browser found", "ViewInFFXIV is made for Brave: install it from brave.com.");
             return;
         }
 
@@ -113,7 +113,7 @@ public sealed partial class HighPerformance
         var link = FindW2gLink(text);
         if (link == null)
         {
-            Plugin.ChatGui.PrintError($"{ChatPrefix}: paste a w2g.tv invite link, e.g. /viewin join https://w2g.tv/?r=…");
+            Notify.Error("That isn't an invite", "Paste the invite your friend sent (it starts with a w2g.tv link).");
             return false;
         }
 
@@ -147,13 +147,13 @@ public sealed partial class HighPerformance
         var url = UrlRegex().Match(text).Value;
         if (url.Length == 0)
         {
-            Plugin.ChatGui.PrintError($"{ChatPrefix}: /viewin play <video link>");
+            Plugin.ChatGui.Print("Usage: /viewin play <video link>", ChatPrefix);
             return;
         }
 
         if (!Active)
         {
-            Plugin.ChatGui.PrintError($"{ChatPrefix}: create or join a room first (/viewin create).");
+            Notify.Warning("Start or join a party first");
             return;
         }
 
@@ -167,7 +167,7 @@ public sealed partial class HighPerformance
     {
         if (Playback == null)
         {
-            Plugin.ChatGui.PrintError($"{ChatPrefix}: no YouTube video is playing in the room.");
+            Notify.Warning("Nothing is playing", "Play controls work once a YouTube video is on.");
             return;
         }
 
@@ -190,7 +190,7 @@ public sealed partial class HighPerformance
         {
             if (!double.TryParse(part, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n))
             {
-                Plugin.ChatGui.PrintError($"{ChatPrefix}: /viewin seek 1:23 | 83 | +10 | -10");
+                Plugin.ChatGui.Print("Usage: /viewin seek 1:23 | 83 | +10 | -10", ChatPrefix);
                 return;
             }
 
@@ -245,12 +245,12 @@ public sealed partial class HighPerformance
     {
         if (Status.RoomUrl.Length == 0)
         {
-            Plugin.ChatGui.PrintError($"{ChatPrefix}: no room yet (/viewin create).");
+            Notify.Warning("No party yet", "Start or join one first.");
             return;
         }
 
         PendingClipboard = BuildInvite();
-        Plugin.ChatGui.Print($"Invite copied — friends paste it into /viewin join: {Status.RoomUrl}", ChatPrefix);
+        Notify.Success("Invite copied", "Friends paste it into the Join box (or /viewin join).");
     }
 
     /// <summary>Your w2g name is always your character name.</summary>
@@ -285,11 +285,11 @@ public sealed partial class HighPerformance
                 // Your own new room: the invite goes straight to the clipboard. Joining keeps your clipboard.
                 creatingRoom = false;
                 PendingClipboard = BuildInvite();
-                Plugin.ChatGui.Print($"Watch party ready — invite copied, paste it to your friends: {status.RoomUrl}", ChatPrefix);
+                Notify.Success("Watch party ready", "The invite is on your clipboard: paste it to your friends.");
             }
             else
             {
-                Plugin.ChatGui.Print($"Joined the watch party: {status.RoomUrl}", ChatPrefix);
+                Notify.Success("Joined the watch party");
             }
         }
         else if (status.RoomUrl.Length == 0)
@@ -316,7 +316,7 @@ public sealed partial class HighPerformance
         {
             lastError = status.Error;
             if (!string.IsNullOrEmpty(status.Error))
-                Plugin.ChatGui.PrintError($"{ChatPrefix}: {status.Error}");
+                Notify.Error("Watch party problem", status.Error);
         }
     }
 
