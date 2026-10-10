@@ -35,6 +35,8 @@ Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), 
   In game: place the TV, fine-tune distance / height / size / turn / tilt, saved spots (lounge, bedroom, …) and
   spot codes. Spots belong to the house they were made in, and each house brings back the spot you last used there.
 - **Settings** — subtitles, Up next, sound, screen behaviour, the browser, diagnostics.
+- **Mini remote** — the remote button at the top shows a small bar with the title, seek bar and transport.
+  Drag it wherever it doesn't get in the way; it only shows during a party and fades while you're not using it.
 
 **Sound from the screen** — it gets quieter as you walk away, pans left/right with the camera and goes silent when you
 leave the screen's zone (Settings → Sound). With the screen on your UI it plays at your own volume.
@@ -54,6 +56,7 @@ Everything is in the window; these are for macros and chat.
 | `/viewin invite` / `show` / `hide` | Copy the invite / show or hide the browser (w2g's own playlist and chat) |
 | `/viewin place` / `screen` / `apply <code>` | Put the screen in front of you / open the Screen tab / use a spot code |
 | `/viewin mode [game\|ui]` | Put the TV in game or on your UI (no argument: switch) |
+| `/viewin remote` | Show or hide the mini remote |
 | `/viewin browser auto\|brave\|chrome\|edge` | Pick the browser (switches a running party over) |
 | `/viewin stop` | Leave the party and close the browser |
 | `/viewin bench` | 25-second performance check, results in chat |

@@ -92,6 +92,9 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>With the UI on top: name plates and housing item markers still do not show over the screen.</summary>
     public bool HideWorldUiOnScreen { get; set; } = true;
 
+    /// <summary>The mini remote (<see cref="Windows.RemoteWindow"/>) is shown during a party.</summary>
+    public bool RemoteShown { get; set; }
+
     public uint ScreenTerritory { get; set; }
 
     public float ScreenX { get; set; }

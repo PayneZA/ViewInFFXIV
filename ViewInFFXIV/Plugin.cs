@@ -19,7 +19,7 @@ public sealed class Plugin : IDalamudPlugin
     private const string AliasCommandName = "/viewinff";
     private const string ChatPrefix = "ViewInFFXIV";
     private const string Usage =
-        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | mode [game|ui] | apply <code> | stop | bench";
+        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | mode [game|ui] | remote | apply <code> | stop | bench";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -71,6 +71,7 @@ public sealed class Plugin : IDalamudPlugin
     public ulong CurrentHouse => lastHouse;
 
     private readonly MainWindow mainWindow;
+    private readonly RemoteWindow remote;
     private readonly object videoLock = new();
     private SharedVideo? video;
     private uint lastTerritoryType;
@@ -103,6 +104,8 @@ public sealed class Plugin : IDalamudPlugin
 
         mainWindow = new MainWindow(this);
         WindowSystem.AddWindow(mainWindow);
+        remote = new RemoteWindow(this);
+        WindowSystem.AddWindow(remote);
         UiScreen = new UiScreenWindow(this);
         screenWindows.AddWindow(UiScreen);
 
@@ -153,6 +156,15 @@ public sealed class Plugin : IDalamudPlugin
     public void ToggleMainUi() => mainWindow.Toggle();
 
     public void OpenScreenUi() => mainWindow.Open(MainWindow.Tab.Screen);
+
+    /// <summary>Shows or hides the mini remote (it only appears during a party).</summary>
+    public void ToggleRemote()
+    {
+        Configuration.RemoteShown = !Configuration.RemoteShown;
+        Configuration.Save();
+        if (Configuration.RemoteShown && !(HighPerformance.Active && HighPerformance.Status.RoomUrl.Length > 0))
+            Notify.Info("The remote shows during a party");
+    }
 
     /// <summary>Moves the TV between the wall (in game) and your UI.</summary>
     public void SetScreenMode(ScreenMode mode)
@@ -241,6 +253,7 @@ public sealed class Plugin : IDalamudPlugin
             Video.Update(texture);
         Benchmark.VideoDone();
 
+        remote.IsOpen = Configuration.RemoteShown && HighPerformance.Active && HighPerformance.Status.RoomUrl.Length > 0;
         if (!ShouldHidePluginWindows())
             WindowSystem.Draw();
         UiScreen.IsOpen = UiScreenShown;
@@ -337,6 +350,9 @@ public sealed class Plugin : IDalamudPlugin
                     SetScreenMode(ScreenMode.InGame);
                 Placement.PlaceInFront(ClientState, ObjectTable, Configuration, CurrentHouse);
                 Notify.Success("Screen placed in front of you");
+                break;
+            case "remote":
+                ToggleRemote();
                 break;
             case "screen":
                 OpenScreenUi();

@@ -174,6 +174,18 @@ public sealed partial class MainWindow : Window, IDisposable
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Room");
 
+        // The mini remote's switch, lit while it's shown.
+        ImGui.SameLine();
+        var remoteShown = plugin.Configuration.RemoteShown;
+        if (remoteShown)
+            ImGui.PushStyleColor(ImGuiCol.Text, Ui.Accent);
+        if (ImGuiComponents.IconButton("##remote", FontAwesomeIcon.TabletAlt))
+            plugin.ToggleRemote();
+        if (remoteShown)
+            ImGui.PopStyleColor();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(remoteShown ? "Hide the mini remote" : "Show the mini remote: small controls you can drag anywhere");
+
         ImGui.SameLine();
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() + MathF.Max(0, ImGui.GetContentRegionAvail().X - inviteWidth));
         if (Ui.AccentButton(inviteLabel))
@@ -806,6 +818,11 @@ public sealed partial class MainWindow : Window, IDisposable
             }
 
             Ui.Dim("Volume and subtitles are just for you; play, pause and seek are for everyone in the party.");
+
+            var remote = config.RemoteShown;
+            if (ImGui.Checkbox("Mini remote: a small control bar you can drag anywhere", ref remote))
+                plugin.ToggleRemote();
+            Ui.Dim("Only during a party; it fades while you're not using it. Also the remote button at the top, or /viewin remote.");
         });
 
         Ui.Card("sound", width =>
