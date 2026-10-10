@@ -33,8 +33,6 @@ Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), 
   spot codes. Spots belong to the house they were made in, and each house brings back the spot you last used there.
 - **Settings** — subtitles, Up next, sound, screen behaviour, the browser, diagnostics.
 
-**On the TV** — point at the screen and play/pause, seek and volume fade in on it.
-
 **Sound from the screen** — it gets quieter as you walk away, pans left/right with the camera and goes silent when you
 leave the screen's zone (Settings → Sound).
 
@@ -71,8 +69,10 @@ FFXIV (plugin) ──named pipe──▶ ViewInFFXIV.Host.exe ──DevTools─�
 - While hidden, the w2g player fills the page and the window is sized so the video is exactly 1920×1080; YouTube is
   pinned to the best quality up to 1080p and its own controls are hidden.
 - Each captured frame is copied on the GPU into a texture shared with the game; the plugin copies it into its own
-  texture and the overlay library draws it on the wall, occluded by walls and under the game's UI. No pixels go through the
-  CPU. A 60 fps video costs the game well under a millisecond per frame (`/viewin bench`).
+  texture and draws it on the wall itself, inside the game's own frame: after the game's post-processing and before
+  its UI, so name plates, chat bubbles and the HUD sit on top with no lag, and walls, furniture and people in front
+  hide it. No pixels go through the CPU. A 60 fps video costs the game well under a millisecond per frame
+  (`/viewin bench`). How it works and how to fix it after a game patch: [docs/renderer.md](docs/renderer.md).
 
 ## Solution layout
 
@@ -84,9 +84,9 @@ FFXIV (plugin) ──named pipe──▶ ViewInFFXIV.Host.exe ──DevTools─�
 
 ## Build
 
-Prerequisites: .NET 10 SDK, XIVLauncher/Dalamud dev hooks (`%AppData%\XIVLauncher\addon\Hooks\dev` or
-`DALAMUD_HOME`), and the overlay library
-checked out next to this repo (`..\overlay-lib`, or pass `-p:OverlayCsproj=...`).
+Prerequisites: .NET 10 SDK and XIVLauncher/Dalamud dev hooks (`%AppData%\XIVLauncher\addon\Hooks\dev` or
+`DALAMUD_HOME`). The wall shader (`ViewInFFXIV/World/Shaders/Wall.hlsl`) is rebuilt with `fxc` from the Windows SDK
+when it is installed; the compiled `.cso` files are committed for builds without it.
 
 ```powershell
 dotnet build ViewInFFXIV\ViewInFFXIV.csproj -c Debug -p:Platform=x64
@@ -106,6 +106,7 @@ creates `dist/release.zip` (dev-plugin folder). Set `VIEWINFFXIV_INSTANCE=<name>
 | Component | Used for | License / link |
 |-----------|----------|----------------|
 | [Dalamud](https://github.com/goatcorp/Dalamud) | Plugin host | [AGPL-3.0](https://github.com/goatcorp/Dalamud/blob/master/LICENSE) |
+| [FFXIVClientStructs](https://github.com/aers/FFXIVClientStructs) | Game render structures and hook addresses | MIT |
 | [SharpDX](https://github.com/sharpdx/SharpDX) | Direct3D 11 interop | MIT |
 | [Watch2Gether](https://w2g.tv/) | Watch-party rooms | Their terms |
 | [Brave](https://brave.com/), Chrome, Edge | Browser | Their terms |

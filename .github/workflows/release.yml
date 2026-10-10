@@ -17,13 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Checkout overlay library
-        uses: actions/checkout@v4
-        with:
-          repository: PayneZA/overlay-lib
-          ref: fix/7.56-dx-vfx
-          path: external/overlay-lib
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -53,8 +46,7 @@ jobs:
       - name: Restore
         shell: pwsh
         run: |
-          dotnet restore ViewInFFXIV/ViewInFFXIV.csproj `
-            -p:OverlayCsproj="${{ github.workspace }}\external\overlay-lib\Overlay\Overlay.csproj"
+          dotnet restore ViewInFFXIV/ViewInFFXIV.csproj
 
       - name: Build Release
         shell: pwsh
@@ -62,7 +54,6 @@ jobs:
           dotnet build ViewInFFXIV/ViewInFFXIV.csproj `
             -c Release `
             -p:Platform=x64 `
-            -p:OverlayCsproj="${{ github.workspace }}\external\overlay-lib\Overlay\Overlay.csproj" `
             -p:Version=${{ steps.version.outputs.version }} `
             -p:AssemblyVersion=${{ steps.version.outputs.version }} `
             -p:FileVersion=${{ steps.version.outputs.version }} `
@@ -87,7 +78,7 @@ jobs:
           $archive.Dispose()
           $required = @(
             'ViewInFFXIV.dll',
-            'Overlay.dll',
+            'SharpDX.Direct3D11.dll',
             'Host/ViewInFFXIV.Host.exe',
             'Host/ViewInFFXIV.Host.dll',
             'Host/ViewInFFXIV.Host.runtimeconfig.json',

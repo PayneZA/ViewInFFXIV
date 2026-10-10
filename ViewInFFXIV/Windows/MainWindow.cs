@@ -629,11 +629,21 @@ public sealed partial class MainWindow : Window, IDisposable
             dl.AddText(corner, Ui.Col(Vector4.One), label);
         }
 
+        // Videos YouTube won't let play in a watch party are greyed out and say why, before anyone clicks them.
+        var playable = plugin.Playability.Peek(video.Id);
+        var blocked = playable is Playability.State.Blocked or Playability.State.Gone;
+        if (blocked)
+            dl.AddRectFilled(start, start + new Vector2(thumbWidth, thumbHeight), Ui.Col(new Vector4(0, 0, 0, 0.6f)), 6f);
+
         var textX = start.X + thumbWidth + 10;
         var textWidth = width - thumbWidth - 10 - actionsWidth;
-        dl.AddText(new Vector2(textX, start.Y + 6), Ui.Col(Ui.Text), Ui.Fit(video.Title.Length > 0 ? video.Title : "YouTube video", textWidth));
-        var meta = string.Join("  ·  ", new[] { video.Channel, video.Views, video.Age }.Where(s => s.Length > 0));
-        dl.AddText(new Vector2(textX, start.Y + 6 + ImGui.GetTextLineHeightWithSpacing()), Ui.Col(Ui.TextDim), Ui.Fit(meta, textWidth));
+        dl.AddText(new Vector2(textX, start.Y + 6), Ui.Col(blocked ? Ui.TextDim : Ui.Text), Ui.Fit(video.Title.Length > 0 ? video.Title : "YouTube video", textWidth));
+        var meta = blocked
+            ? playable == Playability.State.Blocked ? "Can't play in a watch party (owner disabled embedding)" : "Private or removed"
+            : string.Join("  ·  ", new[] { video.Channel, video.Views, video.Age }.Where(s => s.Length > 0));
+        dl.AddText(new Vector2(textX, start.Y + 6 + ImGui.GetTextLineHeightWithSpacing()), Ui.Col(blocked ? Ui.Warn : Ui.TextDim), Ui.Fit(meta, textWidth));
+        if (blocked && hovered)
+            ImGui.SetTooltip(Playability.Reason(playable));
 
         ImGui.SetCursorScreenPos(new Vector2(start.X + width - actionsWidth + 6, start.Y + ((thumbHeight - actionSize) / 2)));
         actions();
@@ -700,19 +710,34 @@ public sealed partial class MainWindow : Window, IDisposable
         Ui.Card("display", _ =>
         {
             ImGui.TextUnformatted("Screen");
-            var tvControls = config.ScreenControls;
-            if (ImGui.Checkbox("Show controls on the screen when you point at it", ref tvControls))
-            {
-                config.ScreenControls = tvControls;
-                config.Save();
-            }
-
             var behind = config.DrawBehindGameUi;
             if (ImGui.Checkbox("Keep chat bubbles, name plates and the HUD on top of the screen", ref behind))
             {
                 config.DrawBehindGameUi = behind;
                 config.Save();
             }
+
+            if (config.DrawBehindGameUi)
+            {
+                ImGui.Indent();
+                var hideWorldUi = config.HideWorldUiOnScreen;
+                if (ImGui.Checkbox("Hide name plates and item markers over the screen", ref hideWorldUi))
+                {
+                    config.HideWorldUiOnScreen = hideWorldUi;
+                    config.Save();
+                }
+
+                Ui.Dim("Chat bubbles and the HUD stay on top either way.");
+                ImGui.Unindent();
+            }
+
+            var cover = config.ScreenCoverDepth * 100f;
+            ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - 220);
+            if (ImGui.SliderFloat("Covers furniture up to", ref cover, 0f, 100f, "%.0f cm in front of it"))
+                config.ScreenCoverDepth = cover / 100f;
+            if (ImGui.IsItemDeactivatedAfterEdit())
+                config.Save();
+            Ui.Dim("For a screen hung over furniture or set into a wall. People always pass in front of it.");
 
             var keep = config.KeepScreenWhenUiHidden;
             if (ImGui.Checkbox("Keep the screen when the game UI is hidden (Scroll Lock, cutscenes, GPose)", ref keep))
@@ -790,7 +815,7 @@ public sealed partial class MainWindow : Window, IDisposable
             var host = plugin.Host.Status;
             var video = plugin.Video;
             ImGui.TextUnformatted($"Game {ImGui.GetIO().Framerate:0} fps · wall {video.Fps:0} fps · captured {host.ArrivedFps:0} fps · dropped {host.SkippedFps:0}/s");
-            ImGui.TextUnformatted($"Renderer: {(plugin.Renderer.UsingOverlay ? plugin.Renderer.DrawingBehindUi ? "Overlay, behind UI" : "Overlay" : "fallback")} · capture GPU: {host.Capture}");
+            ImGui.TextUnformatted($"Renderer: {plugin.Renderer.Describe()} · capture GPU: {host.Capture}");
             if (Party.Playback is { } pb)
             {
                 var dropped = pb.DecodedFrames > 0 ? 100f * pb.DroppedFrames / pb.DecodedFrames : 0f;

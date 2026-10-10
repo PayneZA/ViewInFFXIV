@@ -1,0 +1,540 @@
+using System.Numerics;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using SharpDX.Direct3D;
+using SharpDX.Direct3D11;
+using SharpDX.DXGI;
+using D3D11Device = SharpDX.Direct3D11.Device;
+using KernelDevice = FFXIVClientStructs.FFXIV.Client.Graphics.Kernel.Device;
+using KernelTexture = FFXIVClientStructs.FFXIV.Client.Graphics.Kernel.Texture;
+
+namespace ViewInFFXIV.World;
+
+/// <summary>What the wall screen looks like this frame, published from the Draw thread to whichever pass draws it.</summary>
+public sealed class WallFrame
+{
+    public required Vector3 Center { get; init; }
+
+    /// <summary>From the centre to the right edge of the picture.</summary>
+    public required Vector3 HalfRight { get; init; }
+
+    /// <summary>From the centre to the bottom edge of the picture.</summary>
+    public required Vector3 HalfDown { get; init; }
+
+    /// <summary>Scenery (walls, furniture) up to this many metres in front of the screen is covered by it.</summary>
+    public required float CoverDepth { get; init; }
+
+    /// <summary>Name plates and housing item markers do not show over the screen (in-world drawing only).</summary>
+    public bool HideWorldUi { get; init; }
+
+    /// <summary>The video, or null for a switched-off screen. Owned by <see cref="ScreenRenderer"/>.</summary>
+    public ShaderResourceView? Video { get; init; }
+
+    /// <summary>Render-thread frame number this was published at (see <see cref="FrameInjector"/>).</summary>
+    public long Stamp { get; init; }
+}
+
+/// <summary>
+/// Draws the wall screen straight into one of the game's render targets: one quad, bezel and picture in a single
+/// draw, hidden by scene depth. Shaders and states are shared; each thread that draws owns a <see cref="Pass"/>.
+/// Everything is recorded on a deferred context and run with RestoreContextState, so the game's cached GPU state
+/// is untouched.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Why a deferred context: the game keeps its own cache of what is bound on the immediate context
+/// (<c>Kernel.ImmediateContext</c>: shaders, blend, depth state…). Binding things directly would leave that cache
+/// wrong and the game would draw with our state. <c>ExecuteCommandList(…, restoreContextState: true)</c> puts every
+/// binding back exactly as it was, so to the game our draw never happened.
+/// </para>
+/// <para>
+/// Game textures are borrowed by pointer and wrapped with views of our own (<see cref="Borrow{T}"/> takes a COM
+/// reference). The game recreates them on resize or settings changes, so every cache below is keyed on the
+/// texture pointer and rebuilt when it changes.
+/// </para>
+/// </remarks>
+public sealed unsafe class WallRenderer : IDisposable
+{
+    /// <summary>Bezel thickness as a fraction of the picture width.</summary>
+    private const float BezelFraction = 0.018f;
+
+    private readonly D3D11Device device;
+    private readonly DeviceContext immediate;
+    private readonly VertexShader vertexShader;
+    private readonly PixelShader pixelShader;
+    private readonly SamplerState sampler;
+    private readonly BlendState blend;
+    private readonly RasterizerState rasterizer;
+    private readonly DepthStencilState noDepth;
+    private readonly DepthStencilState writeDepth;
+
+    public WallRenderer()
+    {
+        // GAME ASSUMPTION A9: the game's ID3D11Device (behind its forwarder), whose immediate context the render
+        // thread uses for ProcessCommands.
+        var gameDevice = (nint)KernelDevice.Instance()->D3D11Forwarder;
+        if (gameDevice == 0)
+            throw new InvalidOperationException("The game's D3D11 device is not available.");
+
+        device = Borrow<D3D11Device>(gameDevice);
+        immediate = device.ImmediateContext;
+        vertexShader = new VertexShader(device, LoadShader("Wall.vs.cso"));
+        pixelShader = new PixelShader(device, LoadShader("Wall.ps.cso"));
+
+        sampler = new SamplerState(device, new SamplerStateDescription
+        {
+            Filter = Filter.Anisotropic,
+            MaximumAnisotropy = 16,
+            AddressU = TextureAddressMode.Clamp,
+            AddressV = TextureAddressMode.Clamp,
+            AddressW = TextureAddressMode.Clamp,
+            ComparisonFunction = Comparison.Never,
+            MaximumLod = float.MaxValue,
+        });
+
+        var blendDesc = BlendStateDescription.Default();
+        blendDesc.RenderTarget[0].IsBlendEnabled = true;
+        blendDesc.RenderTarget[0].SourceBlend = BlendOption.SourceAlpha;
+        blendDesc.RenderTarget[0].DestinationBlend = BlendOption.InverseSourceAlpha;
+        blendDesc.RenderTarget[0].BlendOperation = BlendOperation.Add;
+        blendDesc.RenderTarget[0].SourceAlphaBlend = BlendOption.Zero;
+        blendDesc.RenderTarget[0].DestinationAlphaBlend = BlendOption.One;
+        blendDesc.RenderTarget[0].AlphaBlendOperation = BlendOperation.Add;
+        // Leave the target's alpha alone: the game may still read it.
+        blendDesc.RenderTarget[0].RenderTargetWriteMask = ColorWriteMaskFlags.Red | ColorWriteMaskFlags.Green | ColorWriteMaskFlags.Blue;
+        blend = new BlendState(device, blendDesc);
+
+        var rasterDesc = RasterizerStateDescription.Default();
+        rasterDesc.CullMode = CullMode.None;
+        rasterDesc.IsDepthClipEnabled = true;
+        rasterizer = new RasterizerState(device, rasterDesc);
+
+        var depthDesc = DepthStencilStateDescription.Default();
+        depthDesc.IsDepthEnabled = false;
+        depthDesc.DepthWriteMask = DepthWriteMask.Zero;
+        depthDesc.IsStencilEnabled = false;
+        noDepth = new DepthStencilState(device, depthDesc);
+
+        // Writes the screen's own depth (no test: the pixel shader already decided what shows), stencil untouched.
+        var writeDesc = DepthStencilStateDescription.Default();
+        writeDesc.IsDepthEnabled = true;
+        writeDesc.DepthComparison = Comparison.Always;
+        writeDesc.DepthWriteMask = DepthWriteMask.All;
+        writeDesc.IsStencilEnabled = false;
+        writeDepth = new DepthStencilState(device, writeDesc);
+    }
+
+    /// <summary>Our reference to the game's device, for wrapping video views.</summary>
+    public D3D11Device Device => device;
+
+    public Pass CreatePass() => new(this);
+
+    public void Dispose()
+    {
+        noDepth.Dispose();
+        writeDepth.Dispose();
+        rasterizer.Dispose();
+        blend.Dispose();
+        sampler.Dispose();
+        pixelShader.Dispose();
+        vertexShader.Dispose();
+        immediate.Dispose();
+        device.Dispose();
+    }
+
+    /// <summary>Wraps a COM pointer we do not own, taking our own reference (released when the wrapper is disposed).</summary>
+    public static T Borrow<T>(nint pointer)
+        where T : SharpDX.ComObject
+    {
+        Marshal.AddRef(pointer);
+        return (T)Activator.CreateInstance(typeof(T), pointer)!;
+    }
+
+    private static byte[] LoadShader(string name)
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        var resource = assembly.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith(name, StringComparison.Ordinal))
+                       ?? throw new InvalidOperationException($"Shader {name} is not embedded.");
+        using var stream = assembly.GetManifestResourceStream(resource)!;
+        using var memory = new MemoryStream();
+        stream.CopyTo(memory);
+        return memory.ToArray();
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Constants
+    {
+        public Matrix4x4 ViewProj;
+        public Vector3 Center;
+        public float NearPlane;
+        public Vector3 AxisRight;
+        public float WorldTolerance;
+        public Vector3 AxisDown;
+        public float HasVideo;
+        public Vector2 OuterHalf;
+        public Vector2 InnerHalf;
+        public Vector2 DepthScale;
+        public Vector2 DepthMax;
+        public float OuterRadius;
+        public float InnerRadius;
+        public float UseDepth;
+        public float Opacity;
+        public Vector2 InfoScale;
+        public Vector2 InfoMax;
+        public float CharacterTolerance;
+        public float UseInfo;
+        public float DebugView;
+        public float HideWorldUi;
+        public Matrix4x4 InvViewProj;
+        public Vector2 TargetSize;
+        public Vector2 Padding2;
+        public Vector3 CameraPos;
+        public float Padding3;
+    }
+
+    /// <summary>
+    /// One drawing thread's resources: deferred context, constants and views onto the game's textures (cached by
+    /// texture pointer; the game recreates them on resize). Use a pass from one thread only.
+    /// </summary>
+    public sealed class Pass : IDisposable
+    {
+        /// <summary>How far a character may be "in front" and still not hide the screen (depth noise).</summary>
+        private const float CharacterTolerance = 0.05f;
+
+        /// <summary>Debug (/viewin rdebug): ignore scene depth.</summary>
+        public static bool IgnoreDepth;
+
+        /// <summary>Debug (/viewin rdebug info): paint what the occlusion test sees.</summary>
+        public static bool ShowInfo;
+
+        private readonly WallRenderer owner;
+        private readonly DeviceContext context;
+        private readonly SharpDX.Direct3D11.Buffer constants;
+        private readonly Diagnostics.GpuStopwatch gpu;
+        private nint targetTexture;
+        private RenderTargetView? targetView;
+        private nint depthTexture;
+        private Texture2D? depthResource;
+        private Format depthReadFormat;
+        private ShaderResourceView? depthView;
+        private Texture2D? depthCopy;
+        private ShaderResourceView? depthCopyView;
+        private DepthStencilView? depthWriteView;
+        private bool depthFailed;
+        private nint infoPointer;
+        private ShaderResourceView? infoView;
+
+        internal Pass(WallRenderer owner)
+        {
+            this.owner = owner;
+            context = new DeviceContext(owner.device);
+            gpu = new Diagnostics.GpuStopwatch(owner.device, owner.immediate);
+            constants = new SharpDX.Direct3D11.Buffer(owner.device, new BufferDescription
+            {
+                SizeInBytes = (Marshal.SizeOf<Constants>() + 15) & ~15,
+                Usage = ResourceUsage.Dynamic,
+                BindFlags = BindFlags.ConstantBuffer,
+                CpuAccessFlags = CpuAccessFlags.Write,
+            });
+        }
+
+        /// <summary>Why the last draw drew nothing, for diagnostics.</summary>
+        public string? LastProblem { get; private set; }
+
+        /// <summary>Average GPU milliseconds per draw since the last call (read on the drawing thread's schedule).</summary>
+        public double TakeGpuMilliseconds() => gpu.TakeAverage();
+
+        /// <summary>Whether the last draw could test against scene depth.</summary>
+        public bool Occluding => depthView != null;
+
+        /// <summary>
+        /// Draws <paramref name="frame"/> into <paramref name="target"/> with the given camera, hidden by
+        /// <paramref name="depth"/> (may be null: no occlusion). With <paramref name="writeDepth"/>, the screen also
+        /// writes itself into that depth buffer, so whatever the game draws afterwards with depth testing (name plates,
+        /// housing markers) is hidden behind it like behind a real object.
+        /// </summary>
+        /// <remarks>
+        /// GPU work, in order: (1) with <paramref name="writeDepth"/>, copy the scene depth (the shader cannot read a
+        /// depth buffer it is writing); (2) one 4-vertex draw. <paramref name="info"/> is G-buffer 3 (A7); its size
+        /// may differ from the target's, hence the separate scale factors.
+        /// </remarks>
+        public bool Draw(WallFrame frame, KernelTexture* target, KernelTexture* depth, KernelTexture* info, in Matrix4x4 viewProj, Vector3 cameraPos, float nearPlane, bool writeDepth)
+        {
+            if (target == null || target->D3D11Texture2D == null || target->ActualWidth == 0 || target->ActualHeight == 0)
+            {
+                LastProblem = "no render target";
+                return false;
+            }
+
+            var rtv = TargetView((nint)target->D3D11Texture2D);
+            if (rtv == null)
+                return false;
+            var sceneDepth = IgnoreDepth ? null : DepthView(depth);
+            DepthStencilView? depthOut = null;
+            if (sceneDepth != null && writeDepth && DepthWriteViews() is { } views)
+            {
+                // The screen reads the scene's depth and writes its own into the same buffer: read from a copy.
+                // About 15 MB at 1440p, a few hundredths of a millisecond on the GPU (measured with rstat).
+                context.CopyResource(depthResource, depthCopy);
+                sceneDepth = views.Read;
+                depthOut = views.Write;
+            }
+
+            var infoView = sceneDepth != null ? InfoView(info) : null;
+
+            var width = target->ActualWidth;
+            var height = target->ActualHeight;
+            var innerHalf = new Vector2(frame.HalfRight.Length(), frame.HalfDown.Length());
+            if (innerHalf.X < 1e-3f || innerHalf.Y < 1e-3f)
+            {
+                LastProblem = "screen has no size";
+                return false;
+            }
+
+            var bezel = innerHalf.X * 2f * BezelFraction;
+            var outerHalf = innerHalf + new Vector2(bezel);
+            var c = new Constants
+            {
+                ViewProj = viewProj,
+                Center = frame.Center,
+                NearPlane = nearPlane > 0 ? nearPlane : 0.1f,
+                AxisRight = Vector3.Normalize(frame.HalfRight) * outerHalf.X,
+                WorldTolerance = frame.CoverDepth,
+                CharacterTolerance = CharacterTolerance,
+                AxisDown = Vector3.Normalize(frame.HalfDown) * outerHalf.Y,
+                HasVideo = frame.Video != null ? 1f : 0f,
+                OuterHalf = outerHalf,
+                InnerHalf = innerHalf,
+                OuterRadius = bezel * 1.4f,
+                InnerRadius = bezel * 0.35f,
+                UseDepth = sceneDepth != null ? 1f : 0f,
+                HideWorldUi = frame.HideWorldUi ? 1f : 0f,
+                Opacity = 1f,
+                TargetSize = new Vector2(width, height),
+                CameraPos = cameraPos,
+            };
+            if (Matrix4x4.Invert(viewProj, out var inverse))
+                c.InvViewProj = inverse;
+            if (sceneDepth != null)
+            {
+                c.DepthScale = new Vector2((float)depth->ActualWidth / width, (float)depth->ActualHeight / height);
+                c.DepthMax = new Vector2(depth->ActualWidth - 1, depth->ActualHeight - 1);
+            }
+
+            if (infoView != null)
+            {
+                c.UseInfo = 1f;
+                c.DebugView = ShowInfo ? 1f : 0f;
+                c.InfoScale = new Vector2((float)info->ActualWidth / width, (float)info->ActualHeight / height);
+                c.InfoMax = new Vector2(info->ActualWidth - 1, info->ActualHeight - 1);
+            }
+
+            var box = context.MapSubresource(constants, 0, MapMode.WriteDiscard, SharpDX.Direct3D11.MapFlags.None);
+            Marshal.StructureToPtr(c, box.DataPointer, false);
+            context.UnmapSubresource(constants, 0);
+
+            context.Rasterizer.SetViewport(0, 0, width, height);
+            context.Rasterizer.State = owner.rasterizer;
+            context.OutputMerger.SetRenderTargets(depthOut, rtv);
+            context.OutputMerger.SetBlendState(owner.blend);
+            context.OutputMerger.SetDepthStencilState(depthOut != null ? owner.writeDepth : owner.noDepth);
+            context.InputAssembler.InputLayout = null;
+            context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleStrip;
+            context.VertexShader.Set(owner.vertexShader);
+            context.VertexShader.SetConstantBuffer(0, constants);
+            context.PixelShader.Set(owner.pixelShader);
+            context.PixelShader.SetConstantBuffer(0, constants);
+            context.PixelShader.SetShaderResource(0, frame.Video);
+            context.PixelShader.SetShaderResource(1, sceneDepth);
+            context.PixelShader.SetShaderResource(2, infoView);
+            context.PixelShader.SetSampler(0, owner.sampler);
+            context.Draw(4, 0);
+
+            using var commands = context.FinishCommandList(false);
+            gpu.Start();
+            owner.immediate.ExecuteCommandList(commands, true);
+            gpu.Stop();
+            LastProblem = null;
+            return true;
+        }
+
+        public void Dispose()
+        {
+            targetView?.Dispose();
+            DropDepth();
+            infoView?.Dispose();
+            gpu.Dispose();
+            constants.Dispose();
+            context.Dispose();
+        }
+
+        private RenderTargetView? TargetView(nint texture)
+        {
+            if (texture == targetTexture && targetView != null)
+                return targetView;
+
+            targetView?.Dispose();
+            targetView = null;
+            targetTexture = texture;
+            try
+            {
+                using var tex = Borrow<Texture2D>(texture);
+                var format = tex.Description.Format;
+                targetView = new RenderTargetView(owner.device, tex, new RenderTargetViewDescription
+                {
+                    Format = TypedColorFormat(format),
+                    Dimension = RenderTargetViewDimension.Texture2D,
+                });
+            }
+            catch (Exception ex)
+            {
+                LastProblem = $"cannot draw into the game's image ({ex.Message})";
+            }
+
+            return targetView;
+        }
+
+        private ShaderResourceView? DepthView(KernelTexture* depth)
+        {
+            var texture = depth != null ? (nint)depth->D3D11Texture2D : 0;
+            if (texture == 0)
+                return null;
+            if (texture == depthTexture)
+                return depthView;
+
+            DropDepth();
+            depthTexture = texture;
+            try
+            {
+                depthResource = Borrow<Texture2D>(texture);
+                var desc = depthResource.Description;
+                depthReadFormat = DepthReadFormat(desc.Format);
+                if (depthReadFormat == Format.Unknown || (desc.BindFlags & BindFlags.ShaderResource) == 0)
+                {
+                    if (!depthFailed)
+                        Plugin.Log.Warning("Wall screen: scene depth {Format} cannot be read; the screen will not hide behind objects", desc.Format);
+                    depthFailed = true;
+                    return null;
+                }
+
+                depthView = new ShaderResourceView(owner.device, depthResource, ReadDescription(depthReadFormat));
+            }
+            catch (Exception ex)
+            {
+                if (!depthFailed)
+                    Plugin.Log.Warning(ex, "Wall screen: could not read scene depth");
+                depthFailed = true;
+            }
+
+            return depthView;
+        }
+
+        /// <summary>A copy of the scene depth to read from, and a view to write the screen's depth into the real one.</summary>
+        private (ShaderResourceView Read, DepthStencilView Write)? DepthWriteViews()
+        {
+            if (depthResource == null)
+                return null;
+            if (depthCopyView != null && depthWriteView != null)
+                return (depthCopyView, depthWriteView);
+
+            try
+            {
+                var desc = depthResource.Description;
+                var writeFormat = DepthWriteFormat(desc.Format);
+                if (writeFormat == Format.Unknown || (desc.BindFlags & BindFlags.DepthStencil) == 0)
+                    return null;
+
+                var copyDesc = desc;
+                copyDesc.BindFlags = BindFlags.ShaderResource;
+                copyDesc.Usage = ResourceUsage.Default;
+                copyDesc.CpuAccessFlags = CpuAccessFlags.None;
+                copyDesc.OptionFlags = ResourceOptionFlags.None;
+                depthCopy = new Texture2D(owner.device, copyDesc);
+                depthCopyView = new ShaderResourceView(owner.device, depthCopy, ReadDescription(depthReadFormat));
+                depthWriteView = new DepthStencilView(owner.device, depthResource, new DepthStencilViewDescription
+                {
+                    Format = writeFormat,
+                    Dimension = DepthStencilViewDimension.Texture2D,
+                });
+                return (depthCopyView, depthWriteView);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warning(ex, "Wall screen: cannot write depth; markers behind the screen will show through");
+                depthCopyView?.Dispose();
+                depthCopyView = null;
+                depthCopy?.Dispose();
+                depthCopy = null;
+                depthWriteView?.Dispose();
+                depthWriteView = null;
+                return null;
+            }
+        }
+
+        private void DropDepth()
+        {
+            depthWriteView?.Dispose();
+            depthWriteView = null;
+            depthCopyView?.Dispose();
+            depthCopyView = null;
+            depthCopy?.Dispose();
+            depthCopy = null;
+            depthView?.Dispose();
+            depthView = null;
+            depthResource?.Dispose();
+            depthResource = null;
+            depthTexture = 0;
+        }
+
+        private static ShaderResourceViewDescription ReadDescription(Format format)
+        {
+            var srv = new ShaderResourceViewDescription { Format = format, Dimension = ShaderResourceViewDimension.Texture2D };
+            srv.Texture2D.MipLevels = 1;
+            return srv;
+        }
+
+        private static Format DepthWriteFormat(Format format) => format switch
+        {
+            Format.R24G8_Typeless => Format.D24_UNorm_S8_UInt,
+            Format.R32_Typeless => Format.D32_Float,
+            Format.R32G8X24_Typeless => Format.D32_Float_S8X24_UInt,
+            Format.R16_Typeless => Format.D16_UNorm,
+            _ => Format.Unknown,
+        };
+
+        /// <summary>The game's own view of G-buffer 3 (tells characters from scenery), borrowed.</summary>
+        private ShaderResourceView? InfoView(KernelTexture* info)
+        {
+            var pointer = info != null ? (nint)info->D3D11ShaderResourceView : 0;
+            if (pointer == infoPointer)
+                return infoView;
+
+            infoView?.Dispose();
+            infoView = pointer != 0 ? Borrow<ShaderResourceView>(pointer) : null;
+            infoPointer = pointer;
+            return infoView;
+        }
+
+        private static Format TypedColorFormat(Format format) => format switch
+        {
+            Format.B8G8R8A8_Typeless => Format.B8G8R8A8_UNorm,
+            Format.B8G8R8X8_Typeless => Format.B8G8R8X8_UNorm,
+            Format.R8G8B8A8_Typeless => Format.R8G8B8A8_UNorm,
+            Format.R10G10B10A2_Typeless => Format.R10G10B10A2_UNorm,
+            Format.R16G16B16A16_Typeless => Format.R16G16B16A16_Float,
+            _ => format,
+        };
+
+        // GAME ASSUMPTION A6: the scene depth is a typeless resource bound for shader reads (R24G8 as of 7.x:
+        // D24_UNORM_S8_UINT_3). A patch moving to another format only needs a new case here and in DepthWriteFormat.
+        private static Format DepthReadFormat(Format format) => format switch
+        {
+            Format.R24G8_Typeless => Format.R24_UNorm_X8_Typeless,
+            Format.R32_Typeless => Format.R32_Float,
+            Format.R32G8X24_Typeless => Format.R32_Float_X8X24_Typeless,
+            Format.R16_Typeless => Format.R16_UNorm,
+            Format.R32_Float or Format.R16_UNorm => format,
+            _ => Format.Unknown,
+        };
+    }
+}

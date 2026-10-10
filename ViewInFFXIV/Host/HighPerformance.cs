@@ -249,8 +249,13 @@ public sealed partial class HighPerformance
         }
 
         PendingClipboard = BuildInvite();
-        Notify.Success("Invite copied", "Friends paste it into the Join box (or /viewin join).");
+        Notify.Chat(InviteCopiedText());
     }
+
+    /// <summary>What was copied and how friends use it (for the chat box).</summary>
+    private string InviteCopiedText() =>
+        (plugin.Renderer.WillDraw ? "Invite copied: the room link and your screen spot. " : "Invite copied: the room link. ")
+        + "Friends paste it into the Join box in /viewin, or type /viewin join followed by the invite.";
 
     /// <summary>Your w2g name is always your character name.</summary>
     public string? ResolveName() => Plugin.ObjectTable.LocalPlayer?.Name.TextValue;
@@ -284,7 +289,8 @@ public sealed partial class HighPerformance
                 // Your own new room: the invite goes straight to the clipboard. Joining keeps your clipboard.
                 creatingRoom = false;
                 PendingClipboard = BuildInvite();
-                Notify.Success("Watch party ready", "The invite is on your clipboard: paste it to your friends.");
+                Notify.Success("Watch party ready");
+                Notify.Chat(InviteCopiedText());
             }
             else
             {

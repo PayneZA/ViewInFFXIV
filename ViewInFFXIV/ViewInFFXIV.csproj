@@ -14,7 +14,6 @@
     <Tags>utility;housing;video;watchtogether</Tags>
     <RepoUrl>https://github.com/PayneZA/ViewInFFXIV</RepoUrl>
     <MakeZip>true</MakeZip>
-    <OverlayCsproj Condition="'$(OverlayCsproj)' == ''">$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)..\..\overlay-lib\Overlay\Overlay.csproj'))</OverlayCsproj>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ViewInFFXIV.Shared\ViewInFFXIV.Shared.csproj" />
@@ -23,8 +22,23 @@
       <SkipGetTargetFrameworkProperties>true</SkipGetTargetFrameworkProperties>
       <Private>false</Private>
     </ProjectReference>
-    <ProjectReference Include="$(OverlayCsproj)" />
+    <PackageReference Include="SharpDX.Direct3D11" Version="4.2.0" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- WithCulture=false: MSBuild would otherwise read "Wall.ps.cso" as a Pashto (ps) satellite resource. -->
+    <EmbeddedResource Include="World\Shaders\*.cso" WithCulture="false" LogicalName="ViewInFFXIV.Shaders.%(Filename)%(Extension)" />
+  </ItemGroup>
+  <!-- Rebuild the wall shaders when fxc (Windows SDK) is installed; the compiled .cso files are committed for builds without it. -->
+  <ItemGroup>
+    <_FxcCandidate Include="$(MSBuildProgramFiles32)\Windows Kits\10\bin\*\x64\fxc.exe" />
+  </ItemGroup>
+  <Target Name="CompileWallShaders" BeforeTargets="BeforeBuild" Inputs="World\Shaders\Wall.hlsl" Outputs="World\Shaders\Wall.vs.cso;World\Shaders\Wall.ps.cso" Condition="'@(_FxcCandidate)' != ''">
+    <PropertyGroup>
+      <_Fxc>%(_FxcCandidate.FullPath)</_Fxc>
+    </PropertyGroup>
+    <Exec Command="&quot;$(_Fxc)&quot; -nologo -T vs_5_0 -E vs -O3 -Fo &quot;World\Shaders\Wall.vs.cso&quot; &quot;World\Shaders\Wall.hlsl&quot;" />
+    <Exec Command="&quot;$(_Fxc)&quot; -nologo -T ps_5_0 -E ps -O3 -Fo &quot;World\Shaders\Wall.ps.cso&quot; &quot;World\Shaders\Wall.hlsl&quot;" />
+  </Target>
   <Target Name="CopyHost" AfterTargets="Build" BeforeTargets="DefaultDalamudPackagerRelease;DefaultDalamudPackagerDebug">
     <MSBuild Projects="..\ViewInFFXIV.Host\ViewInFFXIV.Host.csproj"
              Targets="GetTargetPath"
@@ -54,8 +68,6 @@
            Text="Failed to copy ViewInFFXIV.Host.exe into $(OutputPath)Host\." />
     <Error Condition="!Exists('$(OutputPath)Host\ViewInFFXIV.Host.runtimeconfig.json')"
            Text="Failed to copy ViewInFFXIV.Host.runtimeconfig.json; the helper will not start." />
-    <Error Condition="!Exists('$(OutputPath)Overlay.dll')"
-           Text="Overlay.dll is missing from $(OutputPath). Check OverlayCsproj=$(OverlayCsproj)." />
   </Target>
   <PropertyGroup>
     <DistDir>$(MSBuildThisFileDirectory)..\dist\</DistDir>

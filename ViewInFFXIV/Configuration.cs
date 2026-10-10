@@ -70,6 +70,12 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Draw the screen in the game's own UI layer so chat bubbles, name plates and the HUD stay on top.</summary>
     public bool DrawBehindGameUi { get; set; } = true;
 
+    /// <summary>Walls and furniture up to this many metres in front of the screen are covered by it; people never are.</summary>
+    public float ScreenCoverDepth { get; set; } = 0.45f;
+
+    /// <summary>With the UI on top: name plates and housing item markers still do not show over the screen.</summary>
+    public bool HideWorldUiOnScreen { get; set; } = true;
+
     public uint ScreenTerritory { get; set; }
 
     public float ScreenX { get; set; }
@@ -118,9 +124,6 @@ public sealed class Configuration : IPluginConfiguration
 
     /// <summary>"auto" (Brave, else Chrome, else Edge) or a browser id from <see cref="Shared.Browsers"/>.</summary>
     public string Browser { get; set; } = Shared.Browsers.Auto;
-
-    /// <summary>Show play/pause/seek on the TV when you point at it.</summary>
-    public bool ScreenControls { get; set; } = true;
 
     /// <summary>Sound comes from the TV: fades with distance, pans with the camera, silent outside its zone.</summary>
     public bool SpatialAudio { get; set; } = true;

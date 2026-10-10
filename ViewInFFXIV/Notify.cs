@@ -3,8 +3,9 @@ using Dalamud.Interface.ImGuiNotification;
 namespace ViewInFFXIV;
 
 /// <summary>
-/// Things that happen (party ready, invite copied, errors) show as Dalamud notifications in the corner, not in chat.
-/// Chat is kept for replies to commands you typed. The same message within a few seconds shows once.
+/// Short notices (party ready, errors) show as Dalamud notifications in the corner. Information worth reading at
+/// your own pace, like what an invite contains and how friends use it, goes to the chat box as an echo
+/// (<see cref="Chat"/>), where it stays. The same notification within a few seconds shows once.
 /// </summary>
 internal static class Notify
 {
@@ -18,6 +19,14 @@ internal static class Notify
     public static void Warning(string title, string? text = null) => Show(NotificationType.Warning, title, text);
 
     public static void Error(string title, string? text = null) => Show(NotificationType.Error, title, text);
+
+    /// <summary>Prints to your chat box as an Echo line (only you see it).</summary>
+    public static void Chat(string text) =>
+        Plugin.ChatGui.Print(new Dalamud.Game.Text.XivChatEntry
+        {
+            Type = Dalamud.Game.Text.XivChatType.Echo,
+            Message = $"[ViewInFFXIV] {text}",
+        });
 
     private static void Show(NotificationType type, string title, string? text)
     {

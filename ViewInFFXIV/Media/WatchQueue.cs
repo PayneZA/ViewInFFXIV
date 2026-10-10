@@ -27,8 +27,41 @@ public sealed class WatchQueue
 
     public List<VideoInfo> History => plugin.Configuration.History;
 
-    public void PlayNow(VideoInfo video)
+    /// <summary>Plays the video for everyone, unless YouTube does not let it play in a watch party.</summary>
+    public void PlayNow(VideoInfo video) => Start(video, fromUpNext: false);
+
+    private void Start(VideoInfo video, bool fromUpNext)
     {
+        var check = plugin.Playability.Check(video.Id);
+        if (check.IsCompleted)
+            Continue(video, check.Result, fromUpNext);
+        else
+            check.ContinueWith(t => Plugin.Framework.RunOnFrameworkThread(() => Continue(video, t.Result, fromUpNext)));
+    }
+
+    private void Continue(VideoInfo video, Playability.Result result, bool fromUpNext)
+    {
+        if (result.State is Playability.State.Blocked or Playability.State.Gone)
+        {
+            // Sending it would put w2g's error page on everyone's wall and stop what they are watching.
+            var name = video.Title.Length > 0 ? $"\"{video.Title}\"" : "this video";
+            if (fromUpNext)
+            {
+                Notify.Warning($"Skipped {name}", Playability.Reason(result.State));
+                Next();
+            }
+            else
+            {
+                Notify.Warning(video.Title.Length > 0 ? video.Title : "This video", Playability.Reason(result.State));
+            }
+
+            return;
+        }
+
+        // A pasted link has no details yet; the check brought the title and channel.
+        if (video.Title.Length == 0 && result.Title.Length > 0)
+            video = new VideoInfo { Id = video.Id, Title = result.Title, Channel = result.Channel };
+
         startedByMe = video.Id;
         plugin.HighPerformance.Play(video.Url);
         Remember(video);
@@ -52,7 +85,7 @@ public sealed class WatchQueue
         var next = UpNext[0];
         UpNext.RemoveAt(0);
         plugin.Configuration.Save();
-        PlayNow(next);
+        Start(next, fromUpNext: true);
         return true;
     }
 

@@ -31,6 +31,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
     [PluginService] internal static INotificationManager Notifications { get; private set; } = null!;
+    [PluginService] internal static IGameInteropProvider GameInterop { get; private set; } = null!;
 
     public Configuration Configuration { get; }
 
@@ -52,12 +53,14 @@ public sealed class Plugin : IDalamudPlugin
 
     public SpatialAudio Audio { get; }
 
+    public Playability Playability { get; } = new();
+
+    public RenderTrace RenderTrace { get; } = new();
+
     public bool MainWindowOpen => mainWindow.IsOpen;
 
     /// <summary>The house you are in (0 outside houses), as of this framework tick.</summary>
     public ulong CurrentHouse => lastHouse;
-
-    private readonly ScreenOverlay screenOverlay;
 
     private readonly MainWindow mainWindow;
     private readonly object videoLock = new();
@@ -89,7 +92,6 @@ public sealed class Plugin : IDalamudPlugin
         Queue = new WatchQueue(this);
         Thumbnails = new ThumbnailCache(TextureProvider, Log);
         Audio = new SpatialAudio(this);
-        screenOverlay = new ScreenOverlay(this);
 
         mainWindow = new MainWindow(this);
         WindowSystem.AddWindow(mainWindow);
@@ -125,6 +127,7 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.RemoveAllWindows();
         mainWindow.Dispose();
         Thumbnails.Dispose();
+        RenderTrace.Dispose();
         Renderer.Dispose();
         Benchmark.Dispose();
         Host.Dispose();
@@ -188,10 +191,15 @@ public sealed class Plugin : IDalamudPlugin
         HighPerformance.Tick();
         Queue.Tick(HighPerformance.Playback);
         Audio.Tick();
+        RenderTrace.Tick();
+        Renderer.FrameworkTicks++;
+        if (FrameInjector.Rendering)
+            Renderer.FrameworkOverlaps++;
     }
 
     private void Draw()
     {
+        RenderTrace.OnDraw();
         if (HighPerformance.PendingClipboard is { } clip)
         {
             ImGui.SetClipboardText(clip);
@@ -210,8 +218,6 @@ public sealed class Plugin : IDalamudPlugin
 
         if (!ShouldHidePluginWindows())
             WindowSystem.Draw();
-        if (!IsGameUiHidden())
-            screenOverlay.Draw();
 
         if (Benchmark.SkipRender)
             Renderer.Hide();
@@ -267,7 +273,10 @@ public sealed class Plugin : IDalamudPlugin
                 HighPerformance.Join(rest.Length > 0 ? rest : Configuration.LastRoomUrl);
                 break;
             case "play":
-                HighPerformance.Play(rest);
+                if (YouTubeSearch.FindVideoId(rest) is { } videoId)
+                    Queue.PlayNow(new VideoInfo { Id = videoId });
+                else
+                    HighPerformance.Play(rest);
                 break;
             case "pause" or "resume" or "toggle":
                 HighPerformance.Control(verb == "toggle" ? PlaybackCommands.Toggle : verb == "pause" ? "pause" : "play");
@@ -321,6 +330,21 @@ public sealed class Plugin : IDalamudPlugin
                     ChatGui.Print("Usage: /viewin apply VIF1.…", ChatPrefix);
                 else
                     ApplyShareCode(rest);
+                break;
+            case "rstat":
+                ChatGui.Print(Renderer.Stats(), ChatPrefix);
+                break;
+            case "rdebug":
+                if (rest == "overlay")
+                    ScreenRenderer.ForceOverlay = !ScreenRenderer.ForceOverlay;
+                else if (rest == "info")
+                    WallRenderer.Pass.ShowInfo = !WallRenderer.Pass.ShowInfo;
+                else
+                    WallRenderer.Pass.IgnoreDepth = !WallRenderer.Pass.IgnoreDepth;
+                ChatGui.Print($"Wall screen debug: ignore depth {WallRenderer.Pass.IgnoreDepth} · show scene info {WallRenderer.Pass.ShowInfo} · force overlay {ScreenRenderer.ForceOverlay}", ChatPrefix);
+                break;
+            case "rtrace":
+                RenderTrace.Start();
                 break;
             case "bench":
                 Benchmark.Start(Video.Device);

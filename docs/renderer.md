@@ -1,0 +1,299 @@
+# Wall screen renderer: maintainer guide
+
+How ViewInFFXIV puts the video on the wall, what it assumes about the game, and what to do when a game or Dalamud
+patch breaks it. Read this before changing anything under `ViewInFFXIV/World/`.
+
+This file describes how the renderer works now.
+
+---
+
+## 1. The 30-second version
+
+- The game renders on its **own render thread**, executing one big list of commands per frame
+  (`ImmediateContext.ProcessCommands`).
+- We hook that function and `ImmediateContext.DoSetTargetCommand`, whose addresses come from ClientStructs.
+- When the game binds its **final image together with a depth buffer** for the first time in a frame, we draw the
+  screen just before. That bind starts its name plate pass, so the screen lands after all post-processing and
+  before any UI.
+- The screen is **one quad, one draw call**, from a shader (`Wall.hlsl`) that draws the bezel and picture, hides the
+  screen behind people and scenery by reading the depth buffer, and writes its own depth so name plates and housing
+  markers can go behind it.
+- Everything runs on a **deferred context** and is submitted with `restoreContextState: true`, so the game never
+  notices.
+- If any of this fails, the plugin falls back on its own to an **overlay** (the same draw at Present, over the UI),
+  then to a **basic** ImGui quad. A patch that breaks the in-world spot therefore shows the screen over the UI
+  instead of not at all.
+
+---
+
+## 2. Files
+
+| File | Role |
+|---|---|
+| `World/ScreenRenderer.cs` | Entry point from `Plugin.Draw`. Builds the per-frame `WallFrame`, picks the tier (in-world / overlay / basic), handles fallbacks, owns the video view's lifetime. |
+| `World/FrameInjector.cs` | **In-world tier.** The two hooks, the per-frame snapshot, the injection rule, the miss counter. Most patch fixes happen here. |
+| `World/WallRenderer.cs` | The D3D11 side: shaders, states, and `Pass` (deferred context, constants, views onto game textures, depth copy and depth write, GPU timer). `WallFrame` is defined here too. |
+| `World/Shaders/Wall.hlsl` | Vertex and pixel shader. Compiled to `Wall.vs.cso` / `Wall.ps.cso`; **both `.cso` files are committed**. |
+| `Diagnostics/RenderTrace.cs` | `/viewin rtrace`: records a few frames of the game's render-target switches. The tool for patch day. |
+| `Diagnostics/GpuStopwatch.cs` | GPU timing on the render thread (shown by `/viewin rstat`). |
+| `Media/Playability.cs` | Not rendering: checks a YouTube video can play in w2g before it is sent (see P1). |
+
+Settings that affect the renderer (`Configuration.cs`, shown under Settings → Screen):
+
+| Setting | Effect |
+|---|---|
+| `DrawBehindGameUi` ("Keep chat bubbles, name plates and the HUD on top") | on = in-world tier; off = overlay tier |
+| `HideWorldUiOnScreen` ("Hide name plates and item markers over the screen") | on = the screen writes the nearest depth, so no depth-tested UI shows over it |
+| `ScreenCoverDepth` ("Covers furniture up to N cm") | scenery this close in front of the screen does not hide it (screens set into walls, over furniture) |
+| `KeepScreenWhenUiHidden` | Dalamud keeps calling Draw while the UI is hidden; otherwise the published frame goes stale and the in-world draw stops on its own |
+
+---
+
+## 3. A frame, step by step
+
+```
+main thread (Dalamud Draw, inside Present)            render thread (game)
+──────────────────────────────────────────            ────────────────────────────────────────────
+Plugin.Draw
+  SharedVideo.Update   (copy the helper's frame)
+  ScreenRenderer.Draw
+    builds WallFrame { corners, video view,
+                       cover depth, hide UI, Stamp }
+    FrameInjector.Publish(frame)  ──────────────────▶ ProcessCommands (hooked)
+                                                        BeginFrame: snapshot camera, final targets,
+                                                                    G-buffer 3, "is the frame fresh?"
+                                                        … shadows, G-buffer, lighting, transparency,
+                                                          bloom, tonemap → final image …
+                                                        DoSetTargetCommand(final image + depth)  (hooked)
+                                                          ► WallRenderer.Pass.Draw  ◄── our draw
+                                                        … name plates (depth-tested), 2D UI, gamma copy
+                                                        EndFrame: count a miss if we wanted to draw and didn't
+Present
+```
+
+The frame published on the main thread is drawn by the **next** rendered frame. That is invisible because:
+- the camera comes from the render thread's own snapshot, so placement never lags;
+- only the video frame and the settings are one frame old.
+
+`Stamp` lets the render thread ignore a frame older than 2 rendered frames. That is how the screen disappears when
+Dalamud stops calling Draw (UI hidden with *Keep screen* off, GPose, cutscenes).
+
+---
+
+## 4. Game assumptions
+
+Every one of these is tagged in the code as `GAME ASSUMPTION A<n>`. Run `grep -rn "ASSUMPTION" ViewInFFXIV` to see
+all the places. Verified on 2026-10-10, game 7.x, 2560×1440, gamma 0.86, DX11.
+
+### A1. Hook addresses (`FrameInjector` constructor)
+- **Assumes:** `ImmediateContext.Addresses.DoSetTargetCommand` and `.ProcessCommands` from ClientStructs are right.
+  `ProcessCommands` runs once per frame on the render thread and runs the whole frame. `DoSetTargetCommand` runs for
+  every render-target switch. The `RenderCommandSetTarget` layout (`RenderTargets[0..4]`, `DepthBuffer`) is right.
+- **If broken:**
+  - The hook creation throws: the log says "cannot hook the game's frame" and the screen draws over the UI.
+  - Or the hooks never fire: `/viewin rstat` shows `rendered` not increasing.
+  - Or SetTarget is now inlined for some commands: the trace shows `[TARGET CHANGED OUTSIDE SetTarget]` near the end
+    of the frame.
+- **Fix:** update Dalamud (ClientStructs ships with it). If ClientStructs itself is behind, wait for it, or check
+  its repo for the new signatures. Never ship a signature of our own if ClientStructs has one.
+
+### A2. The injection rule (`FrameInjector.TryDraw`)
+- **Assumes:** each frame ends with, in order:
+  1. the final image bound **without** depth (tonemap and other post-processing);
+  2. the final image bound **with** the scene depth (name plates and other depth-tested UI);
+  3. the final image bound without depth (HUD, chat, windows);
+  4. a copy to the swap chain.
+
+  We draw at the first bind of type 2.
+- **If broken:** `/viewin rstat` shows `missed` climbing, and after 3 misses in a row the screen draws over the UI.
+  Or the screen draws but post-processing covers it (it looks hazy or bloomed), or the UI ends up under it.
+- **Check:** `/viewin rtrace`, then read the end of a frame (section 6). Find where the frame switches from 1-draw
+  post-processing blocks to UI blocks, and adjust the rule. Keep the rule tied to *which texture and which depth*,
+  never to counting binds (that needs per-user tuning).
+
+### A3. The final image (`FrameInjector.BeginFrame`)
+- **Assumes:** the final image is `RenderTargetManager.ToneAdjustSource` when gamma or a colour filter is set,
+  otherwise `Device.SwapChain->BackBuffer`. Both pointers stay put for the whole frame.
+- **Never use `RenderTargetManager.SwapChainBackBuffer` here.** The game thread switches it between those two
+  values *while the render thread is drawing*. Reading it lost ~30% of frames, which showed up as flicker only when
+  the game was focused.
+- **If broken:** missed frames. The trace shows the final binds landing on a texture we don't compare against.
+- **Untested so far:** default gamma with no colour filter (the back-buffer branch). Run `rtrace` with that setting
+  when convenient.
+
+### A4. Threads (`FrameInjector.BeginFrame`)
+- **Assumes:** the render thread runs a frame while the game thread is already updating the next one. `rstat` shows
+  "framework ticks during render" at nearly 100%.
+- **Rule:** read game-thread state (camera, `RenderTargetManager` fields, `Control`) only at the start of
+  `ProcessCommands`; never mid-frame. Things published from the main thread to the render thread go through the
+  `volatile` `WallFrame` (immutable). The video view it carries has its own COM reference and is released 8 frames
+  after it is replaced (`ScreenRenderer.VideoView`).
+- **If broken:** intermittent flicker or misses that get worse at high frame rates. Compare focused vs unfocused.
+
+### A5. The camera (`FrameInjector.BeginFrame`)
+- **Assumes:** `Render.Manager.MainCamera` at the start of `ProcessCommands` is the camera of the frame being
+  rendered. Its view × projection matches `Control.ViewProjectionMatrix` (the trace prints both as `ctrlVP` and
+  `mainVP`). `Origin` is the camera position and `NearPlane` the near plane.
+- **If broken:** the screen swims or jitters against the wall while the camera moves, or its occlusion edges lag
+  behind people.
+
+### A6. Depth (`Wall.hlsl`, `WallRenderer.DepthReadFormat/DepthWriteFormat`)
+- **Assumes:**
+  - Reverse-Z with an infinite far plane: view distance = `near / depth`, and the sky is 0.
+  - The depth bound in the SetTarget of A2 is the scene depth; it was `DepthStencil`, `D24_UNORM_S8_UINT_3`, R24G8
+    typeless, readable by shaders.
+  - Its size can differ from the target's (upscaling), so the shader uses `ActualWidth/Height` scale factors.
+- **If broken:**
+  - Wrong format: the log says "scene depth … cannot be read" and the screen shows through everything.
+  - Wrong depth model: the screen hides behind everything, or behind nothing. `/viewin rdebug` (ignore depth) shows
+    whether the screen itself still draws.
+- **Untested so far:** DLSS/FSR and dynamic resolution. Watch the screen's edges for shimmer while the camera moves.
+
+### A7. Telling people from scenery (`Wall.hlsl toleranceAt`, `FrameInjector.BeginFrame`)
+- **Assumes:** `RenderTargetManager.GBuffers[3]` is black (all channels < 0.05) on characters and sky, and coloured
+  on scenery. Characters get a strict 5 cm; scenery gets the *Covers furniture* distance.
+- **Check:** `/viewin rdebug info` paints the screen red where it sees a character and green where it sees scenery.
+- **If broken:** people stop hiding the screen (they read as scenery), or walls cut holes in it (they read as
+  characters).
+
+### A8. Which UI is depth-tested (`Wall.hlsl` end of `ps`)
+- **Assumes:** name plates and housing item markers are drawn after our point *with* depth testing (reverse-Z,
+  nearer wins), so the depth the screen writes can hide them. Chat bubbles, the HUD and windows are drawn without
+  depth, so they always stay on top.
+- **Check:** in a trace, the depth-bound block after our point has draws with the UI shown and none in GPose.
+- **If broken:** name plates show over the screen even with the setting on, or chat bubbles disappear behind it.
+
+### A9. The device (`WallRenderer` constructor)
+- **Assumes:** `Kernel.Device.D3D11Forwarder` is the game's `ID3D11Device`, and its immediate context is the one the
+  render thread uses. The game tolerates `ExecuteCommandList(…, true)` between its commands.
+
+### A10. The overlay tier (`ScreenRenderer.DrawOverlay`)
+- **Assumes:**
+  - At Present the swap chain back buffer holds the finished frame.
+  - `RenderTargetManager.DepthStencil` still holds that frame's depth.
+  - `Control.ViewProjectionMatrix` is the camera it was drawn with.
+  - The loading fades are the addons `FadeMiddle` and `FadeBlack`.
+- **Check:** `/viewin rdebug overlay` forces this tier.
+
+### P1. YouTube embedding check (`Media/Playability.cs`)
+- **Assumes:** `https://www.youtube.com/oembed?format=json&url=…` answers 200 when a video can be embedded, 401/403
+  when its owner turned embedding off, and 404/400 when it is private, removed or invalid.
+- **If broken:** any other answer counts as unknown and the video is sent to the room as before, so the worst case is
+  the old behaviour. Videos showing "Can't play in a watch party" that do play on YouTube embeds would mean the
+  status codes changed.
+
+---
+
+## 5. Patch day checklist
+
+After a game or Dalamud update, with a screen placed in your house:
+
+1. **Does it load?** `plugin_log` / dalamud.log, filtered by `ViewInFFXIV`. Look for "renderer unavailable",
+   "cannot hook", "in-world drawing failed".
+2. **Which tier is running?** Run `/viewin rstat`. Healthy:
+   `tier InWorld … rendered N · drawn N · stale 0 · missed 0 · failed 0 · faulted False`, with `drawn` keeping up
+   with `rendered`.
+3. **If it is on the overlay, or `missed` is climbing:** run `/viewin rtrace` and check A2/A3 against the report.
+   Also compare A1's `ProcessCommands begin/end` pairs (one per frame).
+4. **If it draws but looks wrong:**
+   - screen hidden: `/viewin rdebug` (ignore depth); still hidden means A2/A5, shows means A6/A7;
+   - people or walls misjudged: `/viewin rdebug info` (A7);
+   - swims during camera moves: A5;
+   - names or markers on top: A8.
+5. **Check GPU cost:** `rstat` shows `GPU x ms/frame`. It was 0.071 ms at 1440p, including the depth copy.
+6. Fix the code at the tagged spot, rebuild Debug (it hot-reloads), and repeat from step 2.
+7. Update this file: the verified date, and anything about the frame that changed.
+
+Two things that cost an hour each the first time:
+- **Commands typed right after a rebuild are lost** while the plugin reloads. Wait for "ViewInFFXIV loaded" in the
+  log.
+- **The game must be focused** for frame-timing problems (A4) to show up. Unfocused, it slows down and the threads
+  stop overlapping.
+
+---
+
+## 6. Reading a render trace
+
+`/viewin rtrace` writes `%AppData%\XIVLauncher\pluginConfigs\ViewInFFXIV\rtrace-<time>.txt`. Each `SetTarget` line
+shows:
+- **`draws`**: how many D3D draws ran on that target before the next switch;
+- **`RT0..2` and `DS`**: the textures, named after their `RenderTargetManager` field (sizes and formats included);
+- **`ctrlVP` / `mainVP`**: the last row of the two cameras' view-projection matrices (A5: they should match).
+
+The end of a healthy frame (UI shown, gamma set, so the final image is `ToneAdjustSource`):
+
+```
+SetTarget draws=   0  RT0=Unk690                         ← HDR post chain ends
+SetTarget draws=   1  RT0=ToneAdjustSource  DS=-         ← tonemap into the final image   (A2 step 1)
+SetTarget draws=   1  RT0=Unk280            DS=-
+SetTarget draws=   1  RT0=ToneAdjustSource  DS=-
+SetTarget draws=  18  RT0=ToneAdjustSource  DS=DepthStencil   ← ★ we draw just before this: name plates (A2 step 2)
+SetTarget draws=   1  RT0=ToneAdjustSource  DS=DepthStencil
+SetTarget draws=   1  RT0=0x…(256x1)        DS=0x…(256x1)
+SetTarget draws=   0  RT0=ToneAdjustSource  DS=-
+SetTarget draws=  28  RT0=ToneAdjustSource  DS=-         ← HUD, chat, windows            (A2 step 3)
+SetTarget draws=   1  RT0=SwapChain.BackBuffer           ← gamma copy                    (A2 step 4)
+ProcessCommands end
+```
+
+The same trace in GPose: the ★ block has 0 draws (no name plates) and the UI block has 175 (the GPose windows). The
+order of blocks stays the same. That is how the UI blocks were identified, and how to identify them again: trace
+once with the UI shown and once hidden, and see which blocks' draw counts change.
+
+The summary at the bottom lists the threads, the first final-image bind per frame, and "target changes outside
+SetTarget". That last one was 1 per frame (after SSAO, far from our point); a jump near the end of the frame means
+A1 is breaking.
+
+---
+
+## 7. Debug commands
+
+None of these change saved settings; everything resets when the plugin reloads.
+
+| Command | What it does |
+|---|---|
+| `/viewin rstat` | Tier, GPU time, and the counters: `rendered` (frames the game rendered), `drawn` (frames with the screen), `stale` (frames whose published state was too old: UI hidden), `missed` (wanted to draw, spot not found), `failed` (our draw returned an error), `faulted` (an exception stopped in-world drawing until reload), framework/render overlap (A4), last miss |
+| `/viewin rtrace` | Render trace of 3 frames (section 6) |
+| `/viewin rdebug` | Toggle: ignore scene depth (is it the depth test or the draw?) |
+| `/viewin rdebug info` | Toggle: paint what the depth test thinks is behind the screen (A7) |
+| `/viewin rdebug overlay` | Toggle: force the overlay tier (A10) |
+
+---
+
+## 8. Pitfalls already paid for
+
+- **MSBuild culture detection:** `Wall.ps.cso` looks like a Pashto (`ps`) resource and is moved into a satellite
+  assembly. The `EmbeddedResource` has `WithCulture="false"` and an explicit `LogicalName`; keep both.
+- **Commit the `.cso` files.** The embedded-resource wildcard is expanded before `CompileWallShaders` runs, so a
+  checkout without them builds a plugin with no shaders. It falls back to the basic renderer without an error in the
+  build.
+- **Constant buffer layout:** `WallRenderer.Constants` (C#, sequential) and `cbuffer Wall` (HLSL) must match field
+  for field in 16-byte rows. Matrices are `row_major` in HLSL and passed as `System.Numerics` matrices without
+  transposing. Add fields at the end, on both sides.
+- **COM references:** `WallRenderer.Borrow` takes a reference on a pointer we don't own, and its wrapper releases it.
+  Never wrap a game pointer with `new X(ptr)` directly: disposing it would release the game's own reference.
+- **The depth copy is required for depth writes.** A shader cannot read the depth buffer it is writing, so the scene
+  depth is copied first (`Pass.DepthWriteViews`).
+- **"In front of the screen" is measured along the screen's normal**, not along the view ray. The view-ray version
+  made screens set into walls sink into them at steep angles.
+- **The name plate setting means all of them.** With *Hide name plates and item markers over the screen* on, the
+  screen writes the nearest depth, so a name plate only partly over the screen is cut at its edge. A distance-based
+  version was tried and rejected: the setting's job is to hide them.
+- **Line endings:** the repo stores LF. Python on Windows writes CRLF in text mode unless you pass `newline=''`.
+
+---
+
+## 9. Testing status
+
+| Case | Status |
+|---|---|
+| In-world, gamma set (ToneAdjustSource path) | verified live |
+| All angles, flicker under camera motion, people in front, furniture cover | verified live |
+| Name plates/markers hidden, chat bubbles on top | verified live |
+| Overlay tier | verified live |
+| Plugin reload while drawing (hooks active) | verified ~15 reloads |
+| Default gamma, no colour filter (back-buffer path) | not yet |
+| DLSS / FSR / dynamic resolution | not yet |
+| Window resize, fullscreen toggle | not yet |
+| ReShade | not yet |
+| GPose with *Keep screen* off (should hide) / on (should stay) | not yet |
