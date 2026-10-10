@@ -21,6 +21,7 @@ public sealed class HostClient : IDisposable
     private volatile bool connected;
     private DateTime lastLaunchUtc = DateTime.MinValue;
     private bool disposed;
+    private bool staleQuitSent;
 
     /// <summary>Latest status from the helper. Replaced (never mutated) by the IPC thread.</summary>
     public HostStatus Status { get; private set; } = new();
@@ -200,6 +201,7 @@ public sealed class HostClient : IDisposable
                     writer = new StreamWriter(pipe, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true) { AutoFlush = true };
                     reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true);
                     connected = true;
+                    staleQuitSent = false;
                 }
                 else if (!wanted && outbound.IsEmpty)
                 {
@@ -226,7 +228,24 @@ public sealed class HostClient : IDisposable
                     continue;
                 }
 
-                if (JsonSerializer.Deserialize<HostStatus>(line) is { } status && HostEnabled)
+                if (JsonSerializer.Deserialize<HostStatus>(line) is not { } status)
+                    continue;
+
+                // A helper from another build (an update or a dev rebuild) would not understand us: close it,
+                // and the next tick starts ours.
+                if (IsStale(status))
+                {
+                    if (!staleQuitSent)
+                    {
+                        log.Information("Closing an outdated ViewInFFXIV.Host ({Exe})", status.Exe);
+                        staleQuitSent = true;
+                        Send(HostCommand.Quit());
+                    }
+
+                    continue;
+                }
+
+                if (HostEnabled)
                     Status = status;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -251,6 +270,20 @@ public sealed class HostClient : IDisposable
 
         connected = false;
         Drop();
+    }
+
+    private bool IsStale(HostStatus status)
+    {
+        if (!string.Equals(Path.GetFullPath(status.Exe.Length > 0 ? status.Exe : "?"), Path.GetFullPath(hostExe), StringComparison.OrdinalIgnoreCase))
+            return true;
+        try
+        {
+            return File.GetLastWriteTimeUtc(hostExe).Ticks != status.ExeStamp;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>

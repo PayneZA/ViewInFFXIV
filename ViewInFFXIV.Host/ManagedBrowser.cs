@@ -21,14 +21,13 @@ internal sealed class ManagedBrowser : IDisposable
     public const int WindowHeight = 1080;
 
     // Without these Chromium stops painting windows it considers hidden (verified: off-screen freezes without them).
+    // Do not add --disable-frame-rate-limit / --disable-gpu-vsync: they cut Brave's painting to ~14-50 fps.
     private static readonly string[] RenderFlags =
     [
         "--disable-features=CalculateNativeWinOcclusion",
         "--disable-backgrounding-occluded-windows",
         "--disable-renderer-backgrounding",
         "--disable-background-timer-throttling",
-        "--disable-gpu-vsync",
-        "--disable-frame-rate-limit",
     ];
 
     // Largest visible player-sized iframe/video; runs in the page and again inside the player's own frame.

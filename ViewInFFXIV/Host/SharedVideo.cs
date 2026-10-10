@@ -44,6 +44,9 @@ public sealed class SharedVideo : IDisposable
         AdapterLuid = adapter.Description.Luid;
     }
 
+    /// <summary>Our reference to the game's D3D11 device.</summary>
+    public D3D11Device Device => device;
+
     /// <summary>The game's GPU; the helper must capture on the same one to share textures.</summary>
     public long AdapterLuid { get; }
 

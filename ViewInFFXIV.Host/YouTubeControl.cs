@@ -21,12 +21,17 @@ internal sealed class YouTubeControl : IDisposable
             tr = mp.getOption('captions', 'track');
             list = mp.getOption('captions', 'tracklist') || [];
           } catch (e) { }
+          const video = document.querySelector('video');
+          const q = video && video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : {};
+          let codec = '';
+          try { codec = (mp.getStatsForNerds && mp.getStatsForNerds().codecs) || ''; } catch (e) { }
           return {
             id: d.video_id || '', title: d.title || '',
             position: mp.getCurrentTime() || 0, duration: mp.getDuration() || 0, state: mp.getPlayerState(),
             volume: mp.isMuted() ? 0 : mp.getVolume(),
-            videoHeight: (document.querySelector('video') || {}).videoHeight || 0,
+            videoHeight: (video || {}).videoHeight || 0,
             subs: !!(tr && tr.languageCode), subsAvailable: list.length > 0 || !!(tr && tr.languageCode),
+            codec, decodedFrames: q.totalVideoFrames || 0, droppedFrames: q.droppedVideoFrames || 0,
           };
         })()
         """;

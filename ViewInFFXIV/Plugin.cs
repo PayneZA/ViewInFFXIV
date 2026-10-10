@@ -4,6 +4,7 @@ using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using ViewInFFXIV.Diagnostics;
 using ViewInFFXIV.Host;
 using ViewInFFXIV.Shared;
 using ViewInFFXIV.Windows;
@@ -17,7 +18,7 @@ public sealed class Plugin : IDalamudPlugin
     private const string AliasCommandName = "/viewinff";
     private const string ChatPrefix = "ViewInFFXIV";
     private const string Usage =
-        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | invite | show | hide | place | apply <code> | stop";
+        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | invite | show | hide | place | apply <code> | stop | bench";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -39,6 +40,8 @@ public sealed class Plugin : IDalamudPlugin
     public ScreenRenderer Renderer { get; }
 
     public HighPerformance HighPerformance { get; }
+
+    public Benchmark Benchmark { get; }
 
     private readonly RemoteWindow placementWindow;
     private readonly HighPerformanceWindow mainWindow;
@@ -65,6 +68,7 @@ public sealed class Plugin : IDalamudPlugin
         Renderer.Initialize(PluginInterface, Log);
 
         HighPerformance = new HighPerformance(this);
+        Benchmark = new Benchmark(this);
 
         mainWindow = new HighPerformanceWindow(this);
         WindowSystem.AddWindow(mainWindow);
@@ -102,6 +106,7 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.RemoveAllWindows();
         placementWindow.Dispose();
         Renderer.Dispose();
+        Benchmark.Dispose();
         Host.Dispose();
         video?.Dispose();
         CommandManager.RemoveHandler(CommandName);
@@ -159,15 +164,24 @@ public sealed class Plugin : IDalamudPlugin
             HighPerformance.PendingClipboard = null;
         }
 
-        // Pull the newest frame from the helper on the GPU (render thread, game's device context).
+        Benchmark.BeginFrame();
+
+        // Pull the newest frame from the helper on the GPU (render thread, game's device context), but only
+        // while something shows it: the wall screen in this zone, or the preview in the main window.
         var texture = Host.HelperAlive ? Host.Status.SharedTexture : "";
-        if (texture.Length > 0 || video != null)
+        var wanted = Renderer.WillDraw || mainWindow.IsOpen;
+        if (wanted && !Benchmark.SkipVideo && (texture.Length > 0 || video != null))
             Video.Update(texture);
+        Benchmark.VideoDone();
 
         if (!ShouldHidePluginWindows())
             WindowSystem.Draw();
 
-        Renderer.Draw(video?.Handle, IsGameUiHidden());
+        if (Benchmark.SkipRender)
+            Renderer.Hide();
+        else
+            Renderer.Draw(video?.Handle, IsGameUiHidden());
+        Benchmark.EndFrame();
     }
 
     private bool ShouldHidePluginWindows() => Configuration.KeepScreenWhenUiHidden && IsGameUiHidden();
@@ -235,6 +249,9 @@ public sealed class Plugin : IDalamudPlugin
                     ChatGui.Print("Usage: /viewin apply VIF1.…", ChatPrefix);
                 else
                     ApplyShareCode(rest);
+                break;
+            case "bench":
+                Benchmark.Start(Video.Device);
                 break;
             case "stop":
                 HighPerformance.Stop();

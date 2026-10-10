@@ -19,6 +19,9 @@ public sealed class ScreenRenderer : IDisposable
 
     public bool UsingOverlay => overlay != null;
 
+    /// <summary>The screen is switched on and placed in the current zone.</summary>
+    public bool WillDraw => config.ScreenEnabled && config.ScreenTerritory == client.TerritoryType;
+
     /// <summary>True when the last frame went through the game's own UI layer (chat bubbles etc. on top).</summary>
     public bool DrawingBehindUi => nativeShown;
 
@@ -59,7 +62,7 @@ public sealed class ScreenRenderer : IDisposable
     /// <param name="uiHidden">The game UI is hidden (Scroll Lock, GPose, cutscene): native UI nodes are not shown then.</param>
     public void Draw(ImTextureID? texture, bool uiHidden)
     {
-        if (!config.ScreenEnabled || config.ScreenTerritory != client.TerritoryType
+        if (!WillDraw
             || !ScreenPlacement.TryGetCorners(config, out var center, out var right, out var down))
         {
             HideNative();
@@ -99,6 +102,9 @@ public sealed class ScreenRenderer : IDisposable
         if (texture is { } image)
             draw.AddImage(image, center, right, down);
     }
+
+    /// <summary>Draws nothing this frame.</summary>
+    public void Hide() => HideNative();
 
     /// <summary>
     /// The native node keeps showing its last frame until told otherwise. An empty ImGui-mode frame hides it.

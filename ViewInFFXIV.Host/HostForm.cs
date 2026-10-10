@@ -8,6 +8,9 @@ namespace ViewInFFXIV.Host;
 /// </summary>
 internal sealed class HostForm : Form
 {
+    private static readonly string ExePath = Environment.ProcessPath ?? "";
+    private static readonly long ExeStamp = File.GetLastWriteTimeUtc(ExePath).Ticks;
+
     private readonly PipeServer pipe;
     private readonly ManagedBrowser managed = new();
     private readonly YouTubeControl youtube = new();
@@ -125,9 +128,13 @@ internal sealed class HostForm : Form
         return new HostStatus
         {
             Alive = true,
+            Exe = ExePath,
+            ExeStamp = ExeStamp,
             Width = capturing ? IpcConstants.MaxWidth : 0,
             Height = capturing ? IpcConstants.MaxHeight : 0,
             Fps = capturing ? gpu!.Fps : 0,
+            ArrivedFps = capturing ? gpu!.ArrivedFps : 0,
+            SkippedFps = capturing ? gpu!.SkippedFps : 0,
             Generation = gpu?.Frames ?? 0,
             Capture = gpu == null ? "" : $"{gpu.AdapterName} (in {gpu.Arrived}, skipped {gpu.Skipped})",
             SharedTexture = capturing ? gpu!.SharedName : "",

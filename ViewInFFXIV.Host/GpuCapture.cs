@@ -21,6 +21,9 @@ internal sealed class GpuCapture : IDisposable
 {
     private const long WriterKey = 0;
     private const long ReaderKey = 1;
+
+    // Room for one frame being copied, one waiting and one Windows is writing: two drops frames at 60 fps.
+    private const int PoolBuffers = 3;
     private static readonly Guid Texture2DGuid = typeof(Texture2D).GUID;
 
     private readonly D3D11Device device;
@@ -38,6 +41,12 @@ internal sealed class GpuCapture : IDisposable
     private DateTime fpsAnchor = DateTime.UtcNow;
     private DateTime lastFrameUtc;
     private float fps;
+    private ulong rateArrived;
+    private ulong rateSkipped;
+    private DateTime rateAnchor = DateTime.UtcNow;
+    private DateTime lastArrivedUtc;
+    private float arrivedFps;
+    private float skippedFps;
     private bool disposed;
 
     private static int instance;
@@ -101,6 +110,11 @@ internal sealed class GpuCapture : IDisposable
 
     public ulong Skipped { get; private set; }
 
+    /// <summary>Frames per second Windows delivers / drops because the game still held the previous one.</summary>
+    public float ArrivedFps => DateTime.UtcNow - lastArrivedUtc > TimeSpan.FromSeconds(2) ? 0 : arrivedFps;
+
+    public float SkippedFps => DateTime.UtcNow - lastArrivedUtc > TimeSpan.FromSeconds(2) ? 0 : skippedFps;
+
     public string? LastError { get; private set; }
 
     /// <summary>Normalised window area to copy (the video player); null copies the whole window.</summary>
@@ -116,7 +130,7 @@ internal sealed class GpuCapture : IDisposable
             Window = hwnd;
             item = CreateItemForWindow(hwnd);
             poolSize = item.Size;
-            pool = Direct3D11CaptureFramePool.CreateFreeThreaded(winrtDevice, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, poolSize);
+            pool = Direct3D11CaptureFramePool.CreateFreeThreaded(winrtDevice, DirectXPixelFormat.B8G8R8A8UIntNormalized, PoolBuffers, poolSize);
             pool.FrameArrived += OnFrameArrived;
             session = pool.CreateCaptureSession(item);
             try
@@ -164,17 +178,17 @@ internal sealed class GpuCapture : IDisposable
 
             try
             {
-                using var frame = sender.TryGetNextFrame();
+                // Take everything that is waiting and keep only the newest, so the pool always has a free buffer
+                // for Windows to write the next frame into.
+                using var frame = TakeNewest(sender);
                 if (frame == null)
                     return;
-
-                Arrived++;
                 var content = frame.ContentSize;
                 if (content.Width != poolSize.Width || content.Height != poolSize.Height)
                 {
                     // The window was resized (e.g. fitted to 1080p): new buffers from the next frame on.
                     poolSize = content;
-                    sender.Recreate(winrtDevice, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, content);
+                    sender.Recreate(winrtDevice, DirectXPixelFormat.B8G8R8A8UIntNormalized, PoolBuffers, content);
                 }
 
                 // Only write when the plugin took the last frame; otherwise drop this one.
@@ -203,6 +217,20 @@ internal sealed class GpuCapture : IDisposable
                 LastError = ex.Message;
             }
         }
+    }
+
+    private Direct3D11CaptureFrame? TakeNewest(Direct3D11CaptureFramePool pool)
+    {
+        Direct3D11CaptureFrame? newest = null;
+        while (pool.TryGetNextFrame() is { } next)
+        {
+            newest?.Dispose();
+            newest = next;
+            Arrived++;
+            TickRates();
+        }
+
+        return newest;
     }
 
     /// <summary>Copies the cropped video 1:1 into the shared texture, centred; letterboxes when it is smaller.</summary>
@@ -246,6 +274,20 @@ internal sealed class GpuCapture : IDisposable
         fps = (float)(framesThisSecond / elapsed);
         framesThisSecond = 0;
         fpsAnchor = now;
+    }
+
+    private void TickRates()
+    {
+        var now = DateTime.UtcNow;
+        lastArrivedUtc = now;
+        var elapsed = (now - rateAnchor).TotalSeconds;
+        if (elapsed < 1)
+            return;
+        arrivedFps = (float)((Arrived - rateArrived) / elapsed);
+        skippedFps = (float)((Skipped - rateSkipped) / elapsed);
+        rateArrived = Arrived;
+        rateSkipped = Skipped;
+        rateAnchor = now;
     }
 
     // The two capture interop interfaces are classic COM; call them through their vtables rather than

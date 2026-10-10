@@ -148,6 +148,14 @@ public sealed class HighPerformanceWindow : Window
             ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), video.Error);
         ImGui.TextDisabled(
             $"Wall: {video.Fps:0} fps · Brave {host.Fps:0} fps · {video.Width}x{video.Height} · {(plugin.Renderer.UsingOverlay ? plugin.Renderer.DrawingBehindUi ? "Overlay, behind UI" : "Overlay" : "fallback draw")}");
+        ImGui.TextDisabled(
+            $"Game {ImGui.GetIO().Framerate:0} fps · captured {host.ArrivedFps:0} fps, dropped {host.SkippedFps:0}/s (game still held the last frame)");
+        if (plugin.HighPerformance.Playback is { } pb)
+        {
+            var dropped = pb.DecodedFrames > 0 ? 100f * pb.DroppedFrames / pb.DecodedFrames : 0f;
+            ImGui.TextDisabled(
+                $"Decode: {(pb.Codec.Length > 0 ? pb.Codec : "unknown codec")} · dropped {pb.DroppedFrames} of {pb.DecodedFrames} ({dropped:0.#}%)");
+        }
         if (video.Handle is { } image && video.Height > 0)
         {
             var w = MathF.Min(ImGui.GetContentRegionAvail().X, 320f);
