@@ -1,58 +1,80 @@
 # ViewInFFXIV
 
-Dalamud plugin for watch parties inside FFXIV housing: it runs a w2g (Watch2Gether) room in its own hidden Brave
-browser and puts the video on a 16:9 screen on your wall, with the audio playing from Brave. No central server:
-everyone joins the same w2g room and sees it on their own wall.
+Watch YouTube together on a TV in your FFXIV house. Start a party in one click, send the invite, and everyone sees
+the same video, in sync, on a screen on their wall — with the sound coming from the screen. No server of ours:
+the room is a [Watch2Gether](https://w2g.tv/) room, and each player's plugin shows it on their own wall.
 
 ## Requirements
 
 - **Windows 10 (2004+) or Windows 11** — the video is captured with Windows.Graphics.Capture on the GPU.
-- **[Brave](https://brave.com/)** — its built-in ad blocking keeps YouTube ads out; the plugin runs a separate
-  ViewInFFXIV Brave profile, so your normal browser is untouched.
+- **[Brave](https://brave.com/)** — its built-in ad blocking keeps YouTube ads off your wall. The plugin runs its
+  own hidden copy with a separate profile, so your normal browser is untouched. The plugin tells you if it is missing.
 - Dalamud / XIVLauncher. No separate .NET install: the helper runs on XIVLauncher's runtime.
 
-Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), other browsers.
+Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture).
 
-## In game
+## Watching together
 
-`/viewin` opens the window. Everything is also a chat command:
+1. `/viewin` → **Start a watch party**. The screen goes up in front of you (if this house has none yet), the room is
+   created and the invite is copied.
+2. Paste the invite to your friends. They paste it into the **Join** box (or `/viewin join <invite>`). The invite
+   also carries where your screen is, so their TV appears in the same spot when they are in your house.
+3. Search YouTube or paste a link in the window. Play, pause and seek are for everyone; volume and subtitles are
+   just for you.
+
+**In the window**
+
+- **Watch** — the live picture, controls, *Search YouTube or paste a link*, results with thumbnails, **Up next**
+  (the next one starts when a video ends) and **Recent**.
+- **Screen** — place the TV, fine-tune distance / height / size / turn / tilt, saved spots (lounge, bedroom, …) and
+  spot codes. Spots belong to the house they were made in, and each house brings back the spot you last used there.
+- **Settings** — subtitles, Up next, sound, screen behaviour, the browser, diagnostics.
+
+**On the TV** — point at the screen and play/pause, seek and volume fade in on it.
+
+**Sound from the screen** — it gets quieter as you walk away, pans left/right with the camera and goes silent when you
+leave the screen's zone (Settings → Sound).
+
+## Commands
+
+Everything is in the window; these are for macros and chat.
 
 | Command | |
 |---|---|
-| `/viewin create` | Start Brave, create a w2g room, copy the invite link |
-| `/viewin join <w2g link>` | Join a room (no link: your last room) |
-| `/viewin play <link>` | Play a video in the room |
-| `/viewin pause` / `resume` / `seek 1:23` / `seek +10` | Playback — syncs to everyone in the room (YouTube) |
-| `/viewin cc [on\|off]` / `vol 0-100` | English subtitles and volume — just for you, remembered |
-| `/viewin invite` / `show` / `hide` | Copy the invite / show or hide the Brave window (e.g. to pick a video in w2g) |
-| `/viewin place` / `apply <code>` | Put the screen in front of you / apply a placement share code |
-| `/viewin stop` | Close Brave and the helper |
+| `/viewin` | Open the window |
+| `/viewin party` | Start a watch party (same as the big button) |
+| `/viewin join <invite>` | Join a party (no invite: your last one) |
+| `/viewin search <words>` / `play <link>` | Search YouTube in the window / play a link for everyone |
+| `/viewin pause` / `resume` / `seek 1:23` / `seek +10` / `next` | Playback for everyone |
+| `/viewin cc [on\|off]` / `vol 0-100` | Subtitles and volume — just for you |
+| `/viewin invite` / `show` / `hide` | Copy the invite / show or hide the browser (w2g's own playlist and chat) |
+| `/viewin place` / `screen` / `apply <code>` | Put the screen in front of you / open the Screen tab / use a spot code |
+| `/viewin stop` | Leave the party and close Brave |
+| `/viewin bench` | 25-second performance check, results in chat |
 
-Your w2g name is always your character name. Placement (distance, height, size, saved spots per zone, share codes)
-is under **Screen placement…**. Optional: **Keep screen when UI hidden** keeps the wall TV during Scroll Lock,
-cutscenes and GPose.
+Your name in the room is always your character name.
 
 ## How it works
 
 ```
-FFXIV (plugin) ──named pipe──▶ ViewInFFXIV.Host.exe ──DevTools──▶ Brave (off-screen, ViewInFFXIV profile) ▶ w2g
+FFXIV (plugin) ──named pipe──▶ ViewInFFXIV.Host.exe ──DevTools──▶ Brave (hidden, ViewInFFXIV profile) ▶ w2g
       ▲                              │ Windows.Graphics.Capture
       └──── D3D11 shared texture ◀───┘ (1920×1080, keyed mutex, same GPU as the game)
 ```
 
-- The helper starts Brave with anti-throttling flags and parks it off-screen (minimising would stop it rendering,
-  so a minimised window is put straight back). It drives w2g through the DevTools protocol: create/join rooms,
-  your name, playback and subtitles.
-- While hidden, the w2g player is stretched over the whole page and the window is sized so the video area is
-  exactly 1920×1080; YouTube is pinned to the best quality up to 1080p.
+- The helper starts Brave off-screen (minimising would stop it rendering) and drives w2g through the DevTools
+  protocol: rooms, your name, playback, subtitles and the spatial-audio gain/pan (Web Audio inside the player page).
+- While hidden, the w2g player fills the page and the window is sized so the video is exactly 1920×1080; YouTube is
+  pinned to the best quality up to 1080p and its own controls are hidden.
 - Each captured frame is copied on the GPU into a texture shared with the game; the plugin copies it into its own
-  texture and the overlay library draws it on the wall, occluded by walls. No pixels go through the CPU.
+  texture and the overlay library draws it on the wall, occluded by walls and under the game's UI. No pixels go through the
+  CPU. A 60 fps video costs the game well under a millisecond per frame (`/viewin bench`).
 
 ## Solution layout
 
 | Project | Role |
 |---------|------|
-| **[ViewInFFXIV](ViewInFFXIV/)** | Dalamud plugin. Window, commands, placement, receives the shared texture and draws it. |
+| **[ViewInFFXIV](ViewInFFXIV/)** | Dalamud plugin: window, TV controls, search, queue, placement, spatial audio, draws the shared texture. |
 | **[ViewInFFXIV.Host](ViewInFFXIV.Host/)** | Helper process (`ViewInFFXIV.Host.exe`): owns Brave, GPU capture, w2g/YouTube automation. Exits with the game. |
 | **[ViewInFFXIV.Shared](ViewInFFXIV.Shared/)** | Pipe messages shared by both. |
 
@@ -66,9 +88,9 @@ checked out next to this repo (`..\overlay-lib`, or pass `-p:OverlayCsproj=...`)
 dotnet build ViewInFFXIV\ViewInFFXIV.csproj -c Debug -p:Platform=x64
 ```
 
-The plugin build also builds the helper and copies it into `bin\x64\Debug\Host\`. A **Release** build creates
-`dist/release.zip` (dev-plugin folder). For development, set `VIEWINFFXIV_INSTANCE=<name>` to run a second,
-separate helper next to the game's.
+The plugin build also builds the helper and copies it into `bin\x64\Debug\Host\` (run `/viewin stop` first: a
+running helper locks its files). A new plugin closes a helper from another build on its own. A **Release** build
+creates `dist/release.zip` (dev-plugin folder). Set `VIEWINFFXIV_INSTANCE=<name>` to run a second, separate helper.
 
 ## Install from the plugin repo
 
@@ -84,4 +106,4 @@ separate helper next to the game's.
 | [Watch2Gether](https://w2g.tv/) | Watch-party rooms | Their terms |
 | [Brave](https://brave.com/) | Browser | Their terms |
 
-ViewInFFXIV is not affiliated with Square Enix, Watch2Gether, Brave or the Dalamud team.
+ViewInFFXIV is not affiliated with Square Enix, Watch2Gether, YouTube, Brave or the Dalamud team.

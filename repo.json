@@ -2,8 +2,8 @@
   {
     "Author": "ViewInFFXIV",
     "Name": "ViewInFFXIV",
-    "Punchline": "Watch w2g together on a wall in your house.",
-    "Description": "Runs a w2g (Watch2Gether) room in its own hidden Brave browser and puts the video on a 16:9 screen in your house at 1080p. Create or join rooms from in game, with play/pause/seek and English subtitles. Requires Windows 10/11 and the Brave browser (brave.com). Open with /viewin.",
+    "Punchline": "Watch YouTube together on a TV in your house, in sync.",
+    "Description": "Start a watch party in one click and everyone sees the same video, in sync, on a screen on their wall. Search YouTube in game, queue videos, control playback right on the TV, and hear the sound come from the screen. Invites put your friends' TV in the same spot. Requires Windows 10/11 and the Brave browser (brave.com). Open with /viewin.",
     "InternalName": "ViewInFFXIV",
     "AssemblyVersion": "1.2.1.0",
     "TestingAssemblyVersion": "1.2.1.0",
