@@ -128,6 +128,17 @@ internal static class Ui
         return pressed;
     }
 
+    /// <summary>A red button for things that cannot be undone.</summary>
+    public static bool DangerButton(string label, Vector2 size = default)
+    {
+        ImGui.PushStyleColor(ImGuiCol.Button, Live with { W = 0.85f });
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, Live);
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, Live with { W = 0.7f });
+        var pressed = ImGui.Button(label, size);
+        ImGui.PopStyleColor(3);
+        return pressed;
+    }
+
     /// <summary>A circular button with a FontAwesome icon (transport controls).</summary>
     public static bool RoundIconButton(string id, FontAwesomeIcon icon, float diameter, bool accent = false, string? tooltip = null, bool enabled = true)
     {

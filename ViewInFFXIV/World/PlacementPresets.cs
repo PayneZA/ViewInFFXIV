@@ -1,8 +1,10 @@
 namespace ViewInFFXIV.World;
 
 /// <summary>
-/// Saved screen spots, per zone and per house. Houses of the same size in the same district share a zone, so a
-/// spot remembers the house it was made in (<see cref="PlacementPreset.HouseId"/>) and only shows up there;
+/// Saved screen spots, per zone and per house. Moving the screen only changes the live placement; a spot changes
+/// only when you save it (<see cref="SaveActivePreset"/>), so fine-tuning can never overwrite a spot by accident.
+/// The one exception is the very first placement in a house, which becomes its "Default" spot.
+/// Houses of the same size in the same district share a zone, so a spot remembers the house it was made in (<see cref="PlacementPreset.HouseId"/>) and only shows up there;
 /// spots from before that (house 0) work in any house of the zone. Every function takes the house the player
 /// is in (0 outside houses) from the caller, because during a zone change the game already reports the new one.
 /// </summary>
@@ -60,7 +62,46 @@ public static class PlacementPresets
         ApplyPresetToConfig(config, territoryId, preset);
     }
 
-    /// <summary>Writes the live placement into the spot in use here, creating one if there is none.</summary>
+    /// <summary>The screen has been moved, resized or turned since the spot in use here was saved.</summary>
+    public static bool IsDirty(Configuration config, uint territoryId, ulong house)
+    {
+        if (config.ScreenTerritory != territoryId || !config.HasAnchor || Active(config, territoryId, house) is not { } p)
+            return false;
+
+        static bool Diff(float a, float b) => MathF.Abs(a - b) > 1e-4f;
+        return Diff(config.ScreenX, p.ScreenX) || Diff(config.ScreenY, p.ScreenY) || Diff(config.ScreenZ, p.ScreenZ)
+            || Diff(config.ScreenYaw, p.ScreenYaw) || Diff(config.ScreenPitch, p.ScreenPitch) || Diff(config.ScreenWidth, p.ScreenWidth)
+            || Diff(config.PlaceDistance, p.PlaceDistance) || Diff(config.PlaceHeight, p.PlaceHeight) || Diff(config.PlaceStrafe, p.PlaceStrafe)
+            || config.HasAnchor != p.HasAnchor || Diff(config.AnchorX, p.AnchorX) || Diff(config.AnchorY, p.AnchorY)
+            || Diff(config.AnchorZ, p.AnchorZ) || Diff(config.AnchorYaw, p.AnchorYaw);
+    }
+
+    /// <summary>Puts the screen back where the spot in use here has it.</summary>
+    public static void Revert(Configuration config, uint territoryId, ulong house)
+    {
+        if (Active(config, territoryId, house) is { } preset)
+            ApplyPresetToConfig(config, territoryId, preset);
+    }
+
+    /// <summary>
+    /// The first placement in a house becomes its "Default" spot (nothing to overwrite yet). With a spot already in
+    /// use, nothing is saved: the move stays unsaved until you save it.
+    /// </summary>
+    public static void EnsureSpot(Configuration config, uint territoryId, ulong house)
+    {
+        if (territoryId != 0 && config.HasAnchor && config.ScreenTerritory == territoryId && Active(config, territoryId, house) == null)
+            SaveActivePreset(config, territoryId, house);
+    }
+
+    /// <summary>Shows or hides the screen; remembered by the spot straight away (it does not move anything).</summary>
+    public static void SetShown(Configuration config, uint territoryId, ulong house, bool shown)
+    {
+        config.ScreenEnabled = shown;
+        if (Active(config, territoryId, house) is { } preset)
+            preset.Enabled = shown;
+    }
+
+    /// <summary>Writes the live placement into the spot in use here (creating one if there is none) and ties it to this house.</summary>
     public static void SaveActivePreset(Configuration config, uint territoryId, ulong house)
     {
         if (territoryId == 0)
@@ -80,12 +121,7 @@ public static class PlacementPresets
 
         Activate(territory, preset);
         CopyConfigToPreset(config, preset);
-    }
-
-    /// <summary>Placing the screen by hand in a house ties the spot in use to that house.</summary>
-    public static void BindActive(Configuration config, uint territoryId, ulong house)
-    {
-        if (house != 0 && Active(config, territoryId, house) is { HouseId: 0 } preset)
+        if (house != 0 && preset.HouseId == 0)
             preset.HouseId = house;
     }
 
@@ -99,7 +135,6 @@ public static class PlacementPresets
         if (territory == null || preset == null || !Fits(preset, house))
             return false;
 
-        SaveActivePreset(config, territoryId, house);
         Activate(territory, preset);
         ApplyPresetToConfig(config, territoryId, preset);
         return true;
@@ -114,7 +149,6 @@ public static class PlacementPresets
         if (string.IsNullOrEmpty(name))
             return false;
 
-        SaveActivePreset(config, territoryId, house);
         var territory = GetOrCreateTerritory(config, territoryId);
         if (FindPreset(territory, name) != null || territory.Presets.Count >= MaxPresetsPerTerritory)
             return false;
@@ -149,8 +183,8 @@ public static class PlacementPresets
 
     public static void OnTerritoryChanged(Configuration config, uint previousTerritoryId, ulong previousHouse, uint newTerritoryId, ulong newHouse)
     {
-        if (previousTerritoryId != 0 && (previousTerritoryId != newTerritoryId || previousHouse != newHouse) && config.ScreenTerritory == previousTerritoryId && config.HasAnchor)
-            SaveActivePreset(config, previousTerritoryId, previousHouse);
+        if (previousTerritoryId != 0 && (previousTerritoryId != newTerritoryId || previousHouse != newHouse))
+            EnsureSpot(config, previousTerritoryId, previousHouse);
 
         if (newTerritoryId == 0)
         {
@@ -199,8 +233,6 @@ public static class PlacementPresets
             return false;
 
         var here = currentTerritory == territoryId && (sharedHouse == 0 || sharedHouse == currentHouse);
-        if (here)
-            SaveActivePreset(config, territoryId, currentHouse);
 
         var territory = GetOrCreateTerritory(config, territoryId);
         var name = sharedHouse == 0 ? "Imported" : $"Party spot ({HouseLocator.Describe(sharedHouse)})";

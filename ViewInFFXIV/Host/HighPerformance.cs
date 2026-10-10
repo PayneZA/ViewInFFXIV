@@ -94,8 +94,7 @@ public sealed partial class HighPerformance
         {
             if (config.ScreenTerritory == Plugin.ClientState.TerritoryType && config.HasAnchor)
             {
-                config.ScreenEnabled = true;
-                PlacementPresets.SaveActivePreset(config, Plugin.ClientState.TerritoryType, plugin.CurrentHouse);
+                PlacementPresets.SetShown(config, Plugin.ClientState.TerritoryType, plugin.CurrentHouse, true);
                 config.Save();
             }
             else

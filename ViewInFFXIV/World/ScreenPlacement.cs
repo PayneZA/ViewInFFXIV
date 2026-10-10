@@ -65,8 +65,8 @@ public sealed class ScreenPlacement
         config.ScreenTerritory = client.TerritoryType;
         config.ScreenEnabled = true;
         ApplyLive(config);
-        PlacementPresets.SaveActivePreset(config, client.TerritoryType, house);
-        PlacementPresets.BindActive(config, client.TerritoryType, house);
+        // A first placement becomes this house's spot; otherwise the move waits for Save.
+        PlacementPresets.EnsureSpot(config, client.TerritoryType, house);
         config.Save();
     }
 

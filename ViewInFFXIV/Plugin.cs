@@ -176,6 +176,8 @@ public sealed class Plugin : IDalamudPlugin
         var house = HouseLocator.Current();
         if (territory != lastTerritoryType || house != lastHouse)
         {
+            if (PlacementPresets.IsDirty(Configuration, lastTerritoryType, lastHouse))
+                Notify.Warning("Screen changes not saved", "You moved the screen but didn't save the spot, so it's back where it was saved.");
             PlacementPresets.OnTerritoryChanged(Configuration, lastTerritoryType, lastHouse, territory, house);
             lastTerritoryType = territory;
             lastHouse = house;

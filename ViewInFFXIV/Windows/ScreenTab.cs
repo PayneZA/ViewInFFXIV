@@ -40,7 +40,7 @@ internal sealed class ScreenTab
             Ui.Pill(here ? "● On the wall here" : Config.HasAnchor && Config.ScreenTerritory == Territory ? "Hidden" : "Not placed in this zone",
                 here ? Ui.Good : Ui.TextDim);
 
-            ImGui.TextWrapped("Stand where you want to watch from, face the wall, and place the screen. Sliders below move it live.");
+            ImGui.TextWrapped("Stand where you want to watch from, face the wall, and place the screen. Fine-tune below; save it as a spot when it looks right.");
 
             var half = (width - 8) / 2;
             if (Ui.AccentButton("Place in front of me", new Vector2(half, 34)))
@@ -65,10 +65,11 @@ internal sealed class ScreenTab
             var territory = PlacementPresets.FindTerritory(Config, Territory);
             var presets = PlacementPresets.Candidates(territory, House);
             var active = PlacementPresets.Active(Config, Territory, House);
+            var dirty = PlacementPresets.IsDirty(Config, Territory, House);
             var names = presets.Select(p => p.Name).ToArray();
             if (names.Length == 0)
             {
-                Ui.Dim("Place the screen, then save the spot to switch between rooms later.");
+                Ui.Dim("Place the screen and it's saved as this house's first spot.");
             }
             else
             {
@@ -77,32 +78,60 @@ internal sealed class ScreenTab
                 if (ImGui.Combo("##spot", ref current, names, names.Length) && current >= 0)
                 {
                     PlacementPresets.SelectPreset(Config, Territory, names[current], House);
-                    PlacementPresets.BindActive(Config, Territory, House);
+                    Config.Save();
+                }
+
+                if (dirty && ImGui.IsItemHovered())
+                    ImGui.SetTooltip("Switching spots drops your unsaved changes.");
+            }
+
+            // Nothing is saved until you say so: show what changed and the three ways out.
+            if (dirty && active != null)
+            {
+                ImGui.PushStyleColor(ImGuiCol.Text, Ui.Warn);
+                ImGui.TextUnformatted($"● The screen has moved since \"{active.Name}\" was saved.");
+                ImGui.PopStyleColor();
+                if (Ui.AccentButton($"Save to \"{active.Name}\""))
+                {
+                    PlacementPresets.SaveActivePreset(Config, Territory, House);
+                    Config.Save();
+                    Notify.Success($"Saved \"{active.Name}\"");
+                }
+
+                ImGui.SameLine();
+                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.UndoAlt, "Undo changes"))
+                {
+                    PlacementPresets.Revert(Config, Territory, House);
+                    Config.Save();
+                }
+            }
+
+            ImGui.SetNextItemWidth(width - 190);
+            ImGui.InputTextWithHint("##newspot", "New spot name", ref newSpotName, 64);
+            ImGui.SameLine();
+            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Plus, "Save as new spot") && PlacementPresets.CreatePreset(Config, Territory, newSpotName, House))
+            {
+                Notify.Success($"Saved \"{newSpotName.Trim()}\"");
+                newSpotName = "";
+                Config.Save();
+            }
+
+            if (active != null)
+            {
+                ImGui.SameLine();
+                if (ImGuiComponents.IconButton("##delete", FontAwesomeIcon.TrashAlt))
+                    ImGui.OpenPopup("delete-spot");
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip($"Delete \"{active.Name}\"");
+                if (Confirm("delete-spot", $"Delete the spot \"{active.Name}\"? This can't be undone.", "Delete"))
+                {
+                    PlacementPresets.DeletePreset(Config, Territory, active.Name, House);
                     Config.Save();
                 }
             }
 
             if (House != 0)
                 Ui.Dim($"Spots here belong to this house ({HouseLocator.Describe(House)}).");
-
-            ImGui.SetNextItemWidth(width - 190);
-            ImGui.InputTextWithHint("##newspot", "New spot name", ref newSpotName, 64);
-            ImGui.SameLine();
-            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Plus, "Save as new") && PlacementPresets.CreatePreset(Config, Territory, newSpotName, House))
-            {
-                newSpotName = "";
-                Config.Save();
-            }
-
-            ImGui.SameLine();
-            if (ImGuiComponents.IconButton(FontAwesomeIcon.TrashAlt) && active != null)
-            {
-                PlacementPresets.DeletePreset(Config, Territory, active.Name, House);
-                Config.Save();
-            }
-
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Delete this spot");
         });
     }
 
@@ -111,6 +140,8 @@ internal sealed class ScreenTab
         Ui.Card("tune", width =>
         {
             ImGui.TextUnformatted("Fine-tune");
+            ImGui.SameLine();
+            Ui.Dim("— moves the screen live; saved spots only change when you save");
             ImGui.PushItemWidth(width - 110);
 
             var distance = Config.PlaceDistance;
@@ -150,15 +181,20 @@ internal sealed class ScreenTab
             if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.UndoAlt, "Reset size and offsets"))
             {
                 PlacementLimits.ResetToDefaults(Config);
-                SyncSpot();
                 Config.Save();
             }
 
-            ImGui.SameLine();
-            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Times, "Remove from this zone"))
+            var spot = PlacementPresets.Active(Config, Territory, House);
+            if (spot != null)
             {
-                PlacementLimits.RemoveFromZone(Config, Territory, House);
-                Config.Save();
+                ImGui.SameLine();
+                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Times, "Remove from this zone"))
+                    ImGui.OpenPopup("remove-screen");
+                if (Confirm("remove-screen", $"Take the screen down and delete the spot \"{spot.Name}\"? This can't be undone.", "Remove"))
+                {
+                    PlacementLimits.RemoveFromZone(Config, Territory, House);
+                    Config.Save();
+                }
             }
         });
     }
@@ -194,27 +230,37 @@ internal sealed class ScreenTab
             return;
         }
 
-        Config.ScreenEnabled = shown;
-        SyncSpot();
+        PlacementPresets.SetShown(Config, Territory, House, shown);
         Config.Save();
     }
 
-    private void SyncSpot()
+    /// <summary>A small "are you sure" popup; true on the frame the user confirms.</summary>
+    private static bool Confirm(string id, string message, string confirmLabel)
     {
-        if (Territory != 0)
-            PlacementPresets.SaveActivePreset(Config, Territory, House);
+        using var popup = Dalamud.Interface.Utility.Raii.ImRaii.Popup(id);
+        if (!popup.Success)
+            return false;
+
+        ImGui.TextUnformatted(message);
+        var confirmed = false;
+        if (Ui.DangerButton(confirmLabel))
+        {
+            confirmed = true;
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Cancel"))
+            ImGui.CloseCurrentPopup();
+        return confirmed;
     }
 
-    /// <summary>A slider that saves the spot when let go.</summary>
+    /// <summary>A slider that keeps the live placement (not the spot) when let go.</summary>
     private bool Slider(string label, ref float value, float min, float max, string format)
     {
         var changed = ImGui.SliderFloat(label, ref value, min, max, format);
         if (ImGui.IsItemDeactivatedAfterEdit())
-        {
-            SyncSpot();
             Config.Save();
-        }
-
         return changed;
     }
 }
