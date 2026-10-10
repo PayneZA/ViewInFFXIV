@@ -22,7 +22,8 @@ internal sealed class GpuCapture : IDisposable
     private const long WriterKey = 0;
     private const long ReaderKey = 1;
 
-    // Room for one frame being copied, one waiting and one Windows is writing: two drops frames at 60 fps.
+    // Room for one frame being copied, one waiting and one Windows is writing. The pool size does not change the
+    // delivery rate: Windows.Graphics.Capture delivers about 45-48 frames/s at most (docs/renderer.md, section 9).
     private const int PoolBuffers = 3;
     private static readonly Guid Texture2DGuid = typeof(Texture2D).GUID;
 

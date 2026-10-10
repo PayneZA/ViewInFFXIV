@@ -13,8 +13,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ViewInFFXIV.Host", "ViewInF
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ViewInFFXIV", "ViewInFFXIV\ViewInFFXIV.csproj", "{A1B2C3D4-E5F6-7890-ABCD-333333333333}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Overlay", "..\overlay-lib\Overlay\Overlay.csproj", "{7A3E8F12-9C4B-4D21-A8E5-B2F01C6D4E90}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -33,10 +31,6 @@ Global
 		{A1B2C3D4-E5F6-7890-ABCD-333333333333}.Debug|x64.Build.0 = Debug|x64
 		{A1B2C3D4-E5F6-7890-ABCD-333333333333}.Release|x64.ActiveCfg = Release|x64
 		{A1B2C3D4-E5F6-7890-ABCD-333333333333}.Release|x64.Build.0 = Release|x64
-		{7A3E8F12-9C4B-4D21-A8E5-B2F01C6D4E90}.Debug|x64.ActiveCfg = Debug|x64
-		{7A3E8F12-9C4B-4D21-A8E5-B2F01C6D4E90}.Debug|x64.Build.0 = Debug|x64
-		{7A3E8F12-9C4B-4D21-A8E5-B2F01C6D4E90}.Release|x64.ActiveCfg = Release|x64
-		{7A3E8F12-9C4B-4D21-A8E5-B2F01C6D4E90}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

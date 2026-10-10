@@ -3,8 +3,6 @@
 How ViewInFFXIV puts the video on the wall, what it assumes about the game, and what to do when a game or Dalamud
 patch breaks it. Read this before changing anything under `ViewInFFXIV/World/`.
 
-This file describes how the renderer works now.
-
 ---
 
 ## 1. The 30-second version
@@ -109,7 +107,7 @@ all the places. Verified on 2026-10-10, game 7.x, 2560×1440, gamma 0.86, DX11.
   Or the screen draws but post-processing covers it (it looks hazy or bloomed), or the UI ends up under it.
 - **Check:** `/viewin rtrace`, then read the end of a frame (section 6). Find where the frame switches from 1-draw
   post-processing blocks to UI blocks, and adjust the rule. Keep the rule tied to *which texture and which depth*,
-  never to counting binds (that needs per-user tuning).
+  never to counting binds: a count differs between settings and machines and would need per-user tuning.
 
 ### A3. The final image (`FrameInjector.BeginFrame`)
 - **Assumes:** the final image is `RenderTargetManager.ToneAdjustSource` when gamma or a colour filter is set,
@@ -283,7 +281,28 @@ None of these change saved settings; everything resets when the plugin reloads.
 
 ---
 
-## 9. Testing status
+## 9. Video frame rate on the wall: the capture ceiling
+
+A 60 fps video reaches the wall at about **45–48 fps**. 24–30 fps videos, most of YouTube, reach it at their full
+rate. The limit is Windows.Graphics.Capture, not this plugin. Measured on 2026-10-10 with a standalone capture
+tool (do-nothing handler, 1–4 pool buffers) on the hidden browser window:
+
+| Main monitor | Frames delivered | Spacing between frames |
+|---|---|---|
+| 144 Hz | 48.0 /s, steady | 20.83 ms (3 refresh ticks) |
+| 60 Hz | 42–48 /s | 16.7 ms or 33.5 ms (a skipped tick ~1 in 4) |
+
+- **The browser is not the limit:** it decodes and presents the full 60 fps (0 dropped) at both refresh rates.
+- **This plugin is not the limit:** the helper passes on every captured frame (`/viewin bench`: dropped 0/s).
+- **What doesn't change it:** the window's position or nearest monitor, GPU load (game focused or in the
+  background), pool size, or content that changes on every refresh.
+
+The capture appears to keep a minimum gap of about 1/60 s between frames, aligned to refresh ticks. The only API
+that changes this (`GraphicsCaptureSession.MinUpdateInterval`) is Windows 11 24H2+, and the plugin keeps identical
+features on Windows 10 and 11, so it is not used. Going beyond this would need a different way to get frames out of
+the browser.
+
+## 10. Testing status
 
 | Case | Status |
 |---|---|
