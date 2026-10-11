@@ -70,6 +70,8 @@ public sealed unsafe class WallRenderer : IDisposable
     private readonly RasterizerState rasterizer;
     private readonly DepthStencilState noDepth;
     private readonly DepthStencilState writeDepth;
+    private VertexShader? probeVertex;
+    private PixelShader? probePixel;
 
     public WallRenderer()
     {
@@ -132,8 +134,18 @@ public sealed unsafe class WallRenderer : IDisposable
 
     public Pass CreatePass() => new(this);
 
+    /// <summary>The /matinee rprobe shaders, created the first time a probe runs (render thread).</summary>
+    private (VertexShader Vertex, PixelShader Pixel) ProbeShaders()
+    {
+        probeVertex ??= new VertexShader(device, LoadShader("Probe.vs.cso"));
+        probePixel ??= new PixelShader(device, LoadShader("Probe.ps.cso"));
+        return (probeVertex, probePixel);
+    }
+
     public void Dispose()
     {
+        probePixel?.Dispose();
+        probeVertex?.Dispose();
         noDepth.Dispose();
         writeDepth.Dispose();
         rasterizer.Dispose();
@@ -224,8 +236,12 @@ public sealed unsafe class WallRenderer : IDisposable
         /// <summary>The scene depth the game itself calls its own (RenderTargetManager.DepthStencil); set by the caller before Draw.</summary>
         public KernelTexture* SceneDepth;
 
-        private Texture2D? probeLive;
-        private Texture2D? probeCopy;
+        private const int ProbeWidth = 64;
+        private const int ProbeHeight = 36;
+
+        private Texture2D? probeTarget;
+        private RenderTargetView? probeView;
+        private Texture2D? probeStage;
         private string probeHeader = "";
         private Vector2 probeCenterTexel;
         private float probeExpected;
@@ -300,7 +316,7 @@ public sealed unsafe class WallRenderer : IDisposable
             if (rtv == null)
                 return false;
             var liveDepth = DepthView(depth);
-            if (probeLive != null)
+            if (probeStage != null)
                 ReadProbe();
             var sceneDepth = IgnoreDepth || frame.IgnoreDepth ? null : liveDepth;
             DepthStencilView? depthOut = null;
@@ -313,7 +329,7 @@ public sealed unsafe class WallRenderer : IDisposable
                 depthOut = views.Write;
             }
 
-            if (ProbeArmed && probeLive == null)
+            if (ProbeArmed && probeStage == null)
                 StartProbe(frame, target, depth, viewProj, nearPlane);
 
             var infoView = sceneDepth != null ? InfoView(info) : null;
@@ -398,66 +414,88 @@ public sealed unsafe class WallRenderer : IDisposable
         }
 
         /// <summary>
-        /// Records copies of the live scene depth and of our private copy of it into CPU-readable textures, in the
-        /// same command list as the draw and before it (so before the screen changes any depth). ReadProbe reads them
-        /// a few frames later without waiting for the GPU.
+        /// Records a small shader pass that reads the live scene depth and our copy of it side by side and writes both
+        /// as plain floats into a colour target, then copies that to a CPU-readable texture. All in the same command
+        /// list as the draw and before it (so before the screen changes any depth). ReadProbe reads it a few frames
+        /// later without waiting for the GPU.
         /// </summary>
         private void StartProbe(WallFrame frame, KernelTexture* target, KernelTexture* depth, in Matrix4x4 viewProj, float nearPlane)
         {
             ProbeArmed = false;
-            if (depthResource == null || DepthWriteViews() == null)
-            {
-                Finish("probe: no readable scene depth at the injection point (" + DepthInfo + ")");
-                return;
-            }
-
-            var desc = depthResource.Description;
-            if (desc.Format is not (Format.R24G8_Typeless or Format.R32_Typeless or Format.R32_Float))
-            {
-                Finish($"probe: depth format {desc.Format} is not supported by the probe");
-                return;
-            }
-
             try
             {
-                var staging = desc;
-                staging.Usage = ResourceUsage.Staging;
-                staging.BindFlags = BindFlags.None;
-                staging.CpuAccessFlags = CpuAccessFlags.Read;
-                staging.OptionFlags = ResourceOptionFlags.None;
-                probeLive = new Texture2D(owner.device, staging);
-                probeCopy = new Texture2D(owner.device, staging);
+                if (depthResource == null || depthView == null || DepthWriteViews() is not { } views)
+                {
+                    Finish("probe: no readable scene depth at the injection point (" + DepthInfo + ")");
+                    return;
+                }
+
+                var desc = depthResource.Description;
+                if (desc.SampleDescription.Count != 1)
+                {
+                    Finish($"probe: the scene depth is multisampled ({desc.SampleDescription.Count}x), which the probe does not read");
+                    return;
+                }
+
+                var (vertex, pixel) = owner.ProbeShaders();
+                var description = new Texture2DDescription
+                {
+                    Width = ProbeWidth,
+                    Height = ProbeHeight,
+                    MipLevels = 1,
+                    ArraySize = 1,
+                    Format = Format.R32G32B32A32_Float,
+                    SampleDescription = new SampleDescription(1, 0),
+                    Usage = ResourceUsage.Default,
+                    BindFlags = BindFlags.RenderTarget,
+                };
+                probeTarget = new Texture2D(owner.device, description);
+                probeView = new RenderTargetView(owner.device, probeTarget);
+                description.Usage = ResourceUsage.Staging;
+                description.BindFlags = BindFlags.None;
+                description.CpuAccessFlags = CpuAccessFlags.Read;
+                probeStage = new Texture2D(owner.device, description);
+
+                context.CopyResource(depthResource, depthCopy);
+                context.Rasterizer.SetViewport(0, 0, ProbeWidth, ProbeHeight);
+                context.Rasterizer.State = owner.rasterizer;
+                context.OutputMerger.SetRenderTargets((DepthStencilView?)null, probeView);
+                context.InputAssembler.InputLayout = null;
+                context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleStrip;
+                context.VertexShader.Set(vertex);
+                context.PixelShader.Set(pixel);
+                context.PixelShader.SetShaderResource(1, views.Read);
+                context.PixelShader.SetShaderResource(3, depthView);
+                context.Draw(4, 0);
+                context.PixelShader.SetShaderResource(1, null);
+                context.PixelShader.SetShaderResource(3, null);
+                context.CopyResource(probeTarget, probeStage);
+
+                // Where the screen's centre lands in the depth texture, and the depth the screen itself has there.
+                var clip = Vector4.Transform(new Vector4(frame.Center, 1f), viewProj);
+                var ndc = new Vector2(clip.X / clip.W, clip.Y / clip.W);
+                var pixelPosition = new Vector2((ndc.X * 0.5f + 0.5f) * target->ActualWidth, (0.5f - ndc.Y * 0.5f) * target->ActualHeight);
+                probeCenterTexel = new Vector2(pixelPosition.X * depth->ActualWidth / target->ActualWidth, pixelPosition.Y * depth->ActualHeight / target->ActualHeight);
+                probeExpected = clip.Z / clip.W;
+                probeWaited = 0;
+                var sameResource = SceneDepth != null && SceneDepth->D3D11Texture2D == depth->D3D11Texture2D;
+                probeHeader =
+                    $"v{typeof(WallRenderer).Assembly.GetName().Version} · bound depth is the game's scene depth: {(SceneDepth == null ? "unknown" : sameResource ? "yes" : "NO")}" +
+                    $" · depth {desc.Format} {desc.Width}x{desc.Height} (active {depth->ActualWidth}x{depth->ActualHeight}) · target {target->ActualWidth}x{target->ActualHeight}" +
+                    $" · near {nearPlane:0.###} · screen centre at texel {probeCenterTexel.X:0},{probeCenterTexel.Y:0}, in front of camera {(clip.W > 0 ? "yes" : "NO")}, its own depth {probeExpected:0.0000}" +
+                    $" · ignore depth {(IgnoreDepth || frame.IgnoreDepth)}";
             }
             catch (Exception ex)
             {
                 DropProbe();
-                Finish($"probe: cannot create the readback textures ({ex.Message})");
-                return;
+                Finish($"probe failed to start: {ex.Message}");
             }
-
-            context.CopyResource(depthResource, depthCopy);
-            context.CopyResource(depthResource, probeLive);
-            context.CopyResource(depthCopy, probeCopy);
-
-            // Where the screen's centre lands in the depth texture, and the depth the screen itself has there.
-            var clip = Vector4.Transform(new Vector4(frame.Center, 1f), viewProj);
-            var ndc = new Vector2(clip.X / clip.W, clip.Y / clip.W);
-            var pixel = new Vector2((ndc.X * 0.5f + 0.5f) * target->ActualWidth, (0.5f - ndc.Y * 0.5f) * target->ActualHeight);
-            probeCenterTexel = new Vector2(pixel.X * depth->ActualWidth / target->ActualWidth, pixel.Y * depth->ActualHeight / target->ActualHeight);
-            probeExpected = clip.Z / clip.W;
-            probeWaited = 0;
-            var sameResource = SceneDepth != null && SceneDepth->D3D11Texture2D == depth->D3D11Texture2D;
-            probeHeader =
-                $"v{typeof(WallRenderer).Assembly.GetName().Version} · bound depth is the game's scene depth: {(SceneDepth == null ? "unknown" : sameResource ? "yes" : "NO")}" +
-                $" · depth {desc.Format} {desc.Width}x{desc.Height} (active {depth->ActualWidth}x{depth->ActualHeight}) · target {target->ActualWidth}x{target->ActualHeight}" +
-                $" · near {nearPlane:0.###} · screen centre at texel {probeCenterTexel.X:0},{probeCenterTexel.Y:0}, in front of camera {(clip.W > 0 ? "yes" : "NO")}, its own depth {probeExpected:0.0000}" +
-                $" · ignore depth {(IgnoreDepth || frame.IgnoreDepth)}";
         }
 
-        /// <summary>Reads the probe textures once the GPU is done with them (never waits); gives up after a while.</summary>
+        /// <summary>Reads the probe target once the GPU is done with it (never waits); gives up after a while.</summary>
         private void ReadProbe()
         {
-            if (probeLive == null || probeCopy == null || depthResource == null)
+            if (probeStage == null)
                 return;
 
             if (++probeWaited > 300)
@@ -467,94 +505,98 @@ public sealed unsafe class WallRenderer : IDisposable
                 return;
             }
 
-            SharpDX.DataBox live;
+            SharpDX.DataBox box;
             try
             {
-                live = owner.immediate.MapSubresource(probeLive, 0, MapMode.Read, SharpDX.Direct3D11.MapFlags.DoNotWait);
+                box = owner.immediate.MapSubresource(probeStage, 0, MapMode.Read, SharpDX.Direct3D11.MapFlags.DoNotWait);
             }
             catch (SharpDX.SharpDXException ex) when (ex.ResultCode == SharpDX.DXGI.ResultCode.WasStillDrawing)
             {
                 return;
             }
-
-            SharpDX.DataBox copy;
-            try
+            catch (Exception ex)
             {
-                copy = owner.immediate.MapSubresource(probeCopy, 0, MapMode.Read, SharpDX.Direct3D11.MapFlags.DoNotWait);
-            }
-            catch (SharpDX.SharpDXException ex) when (ex.ResultCode == SharpDX.DXGI.ResultCode.WasStillDrawing)
-            {
-                owner.immediate.UnmapSubresource(probeLive, 0);
+                DropProbe();
+                Finish($"probe failed reading back: {ex.Message}. {probeHeader}");
                 return;
             }
 
             string report;
             try
             {
-                var desc = depthResource.Description;
-                report = Summarise(live, copy, desc);
+                report = Summarise(box);
+            }
+            catch (Exception ex)
+            {
+                report = $"probe failed reading back: {ex.Message}. {probeHeader}";
             }
             finally
             {
-                owner.immediate.UnmapSubresource(probeCopy, 0);
-                owner.immediate.UnmapSubresource(probeLive, 0);
+                owner.immediate.UnmapSubresource(probeStage, 0);
             }
 
             DropProbe();
             Finish(report);
         }
 
-        private string Summarise(SharpDX.DataBox live, SharpDX.DataBox copy, Texture2DDescription desc)
+        private string Summarise(SharpDX.DataBox box)
         {
-            var isFloat = desc.Format != Format.R24G8_Typeless;
-            float Read(SharpDX.DataBox box, int x, int y)
-            {
-                var raw = (uint)Marshal.ReadInt32(box.DataPointer, y * box.RowPitch + x * 4);
-                return isFloat ? BitConverter.UInt32BitsToSingle(raw) : (raw & 0xFFFFFF) / 16777215f;
-            }
+            const int rowBytes = ProbeWidth * 16;
+            if (box.DataPointer == IntPtr.Zero || box.RowPitch < rowBytes)
+                return $"probe: the readback mapping is unusable (pointer {(box.DataPointer == IntPtr.Zero ? "null" : "set")}, row pitch {box.RowPitch}). {probeHeader}";
 
-            const int step = 4;
-            long count = 0, sky = 0, near = 0, equal = 0, copyZero = 0;
+            var cells = new float[ProbeWidth * ProbeHeight * 4];
+            for (var y = 0; y < ProbeHeight; y++)
+                Marshal.Copy(box.DataPointer + y * box.RowPitch, cells, y * ProbeWidth * 4, ProbeWidth * 4);
+
+            long count = 0, invalid = 0, sky = 0, near = 0, equal = 0, copyZero = 0;
             float min = float.MaxValue, max = float.MinValue, maxDiff = 0f;
             double sum = 0;
-            for (var y = 0; y < desc.Height; y += step)
+            for (var i = 0; i < ProbeWidth * ProbeHeight; i++)
             {
-                for (var x = 0; x < desc.Width; x += step)
+                var a = cells[i * 4];
+                var b = cells[i * 4 + 1];
+                if (!float.IsFinite(a) || !float.IsFinite(b))
                 {
-                    var a = Read(live, x, y);
-                    var b = Read(copy, x, y);
-                    count++;
-                    sum += a;
-                    min = Math.Min(min, a);
-                    max = Math.Max(max, a);
-                    if (a <= 1e-7f)
-                        sky++;
-                    if (a >= 0.5f)
-                        near++;
-                    if (b <= 1e-7f)
-                        copyZero++;
-                    var diff = Math.Abs(a - b);
-                    maxDiff = Math.Max(maxDiff, diff);
-                    if (diff <= 1e-7f)
-                        equal++;
+                    invalid++;
+                    continue;
                 }
+
+                count++;
+                sum += a;
+                min = Math.Min(min, a);
+                max = Math.Max(max, a);
+                if (a <= 1e-7f)
+                    sky++;
+                if (a >= 0.5f)
+                    near++;
+                if (b <= 1e-7f)
+                    copyZero++;
+                var diff = Math.Abs(a - b);
+                maxDiff = Math.Max(maxDiff, diff);
+                if (diff <= 1e-7f)
+                    equal++;
             }
 
-            var cx = Math.Clamp((int)probeCenterTexel.X, 0, (int)desc.Width - 1);
-            var cy = Math.Clamp((int)probeCenterTexel.Y, 0, (int)desc.Height - 1);
+            // The grid cell the screen's centre falls in.
+            var cx = Math.Clamp((int)(probeCenterTexel.X / (depthResource?.Description.Width ?? 1) * ProbeWidth), 0, ProbeWidth - 1);
+            var cy = Math.Clamp((int)(probeCenterTexel.Y / (depthResource?.Description.Height ?? 1) * ProbeHeight), 0, ProbeHeight - 1);
+            var centre = (cy * ProbeWidth + cx) * 4;
             double Pct(long n) => count > 0 ? 100.0 * n / count : 0;
             return probeHeader + " · LIVE depth: " +
-                   $"min {min:0.00000} max {max:0.00000} mean {sum / Math.Max(count, 1):0.00000}, sky {Pct(sky):0}%, nearer than 0.5: {Pct(near):0}% · " +
+                   $"min {min:0.00000} max {max:0.00000} mean {sum / Math.Max(count, 1):0.00000}, sky {Pct(sky):0}%, nearer than 0.5: {Pct(near):0}%, not a number {invalid} of {ProbeWidth * ProbeHeight} · " +
                    $"COPY vs live: identical {Pct(equal):0}%, max difference {maxDiff:0.00000}, copy is zero {Pct(copyZero):0}% · " +
-                   $"at the screen centre: live {Read(live, cx, cy):0.00000}, copy {Read(copy, cx, cy):0.00000}";
+                   $"at the screen centre: live {cells[centre]:0.00000}, copy {cells[centre + 1]:0.00000}";
         }
 
         private void DropProbe()
         {
-            probeLive?.Dispose();
-            probeLive = null;
-            probeCopy?.Dispose();
-            probeCopy = null;
+            probeStage?.Dispose();
+            probeStage = null;
+            probeView?.Dispose();
+            probeView = null;
+            probeTarget?.Dispose();
+            probeTarget = null;
         }
 
         private static void Finish(string report) => Interlocked.Exchange(ref probeResult, report);

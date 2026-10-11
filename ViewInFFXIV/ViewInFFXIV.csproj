@@ -1,6 +1,6 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>5.5.0.4</Version>
+    <Version>5.5.0.5</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -35,12 +35,14 @@
   <ItemGroup>
     <_FxcCandidate Include="$(MSBuildProgramFiles32)\Windows Kits\10\bin\*\x64\fxc.exe" />
   </ItemGroup>
-  <Target Name="CompileWallShaders" BeforeTargets="BeforeBuild" Inputs="World\Shaders\Wall.hlsl" Outputs="World\Shaders\Wall.vs.cso;World\Shaders\Wall.ps.cso" Condition="'@(_FxcCandidate)' != ''">
+  <Target Name="CompileWallShaders" BeforeTargets="BeforeBuild" Inputs="World\Shaders\Wall.hlsl" Outputs="World\Shaders\Wall.vs.cso;World\Shaders\Wall.ps.cso;World\Shaders\Probe.vs.cso;World\Shaders\Probe.ps.cso" Condition="'@(_FxcCandidate)' != ''">
     <PropertyGroup>
       <_Fxc>%(_FxcCandidate.FullPath)</_Fxc>
     </PropertyGroup>
     <Exec Command="&quot;$(_Fxc)&quot; -nologo -T vs_5_0 -E vs -O3 -Fo &quot;World\Shaders\Wall.vs.cso&quot; &quot;World\Shaders\Wall.hlsl&quot;" />
     <Exec Command="&quot;$(_Fxc)&quot; -nologo -T ps_5_0 -E ps -O3 -Fo &quot;World\Shaders\Wall.ps.cso&quot; &quot;World\Shaders\Wall.hlsl&quot;" />
+    <Exec Command="&quot;$(_Fxc)&quot; -nologo -T vs_5_0 -E probeVs -O3 -Fo &quot;World\Shaders\Probe.vs.cso&quot; &quot;World\Shaders\Wall.hlsl&quot;" />
+    <Exec Command="&quot;$(_Fxc)&quot; -nologo -T ps_5_0 -E probePs -O3 -Fo &quot;World\Shaders\Probe.ps.cso&quot; &quot;World\Shaders\Wall.hlsl&quot;" />
   </Target>
   <Target Name="CopyHost" AfterTargets="Build" BeforeTargets="DefaultDalamudPackagerRelease;DefaultDalamudPackagerDebug">
     <MSBuild Projects="..\ViewInFFXIV.Host\ViewInFFXIV.Host.csproj"

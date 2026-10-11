@@ -27,6 +27,7 @@ cbuffer Wall : register(b0)
 Texture2D<float4> video : register(t0);
 Texture2D<float> sceneDepth : register(t1);
 Texture2D<float4> sceneInfo : register(t2); // GAME ASSUMPTION A7: G-buffer 3, black on characters (and sky), coloured on scenery
+Texture2D<float> liveDepth : register(t3); // /matinee rprobe only: the game's own depth, next to the copy in t1
 SamplerState videoSampler : register(s0);
 
 // Slightly larger than the screen so the outer edge can fade over a pixel instead of being cut by the raster.
@@ -182,4 +183,22 @@ PSOut ps(VSOut i)
     // GAME ASSUMPTION A8: name plates and housing markers are depth-tested; chat bubbles and the HUD are not.
     o.depth = hideWorldUi > 0.5 ? 1.0 : coverDepth(i, worldTolerance);
     return o;
+}
+
+// /matinee rprobe: one pixel per sample of a 64x36 grid laid over the depth texture. Writes the game's own depth (R)
+// and our copy of it (G) as plain floats into an ordinary colour target, the same on every GPU driver, and the
+// texel it read (B, A). The CPU reads that target back; it never touches the depth texture's memory layout.
+float4 probeVs(uint id : SV_VertexID) : SV_Position
+{
+    float2 corner = float2(id & 1, id >> 1) * 2.0 - 1.0;
+    return float4(corner, 0.0, 1.0);
+}
+
+float4 probePs(float4 pos : SV_Position) : SV_Target
+{
+    uint w, h;
+    liveDepth.GetDimensions(w, h);
+    float2 cell = floor(pos.xy);
+    int2 texel = clamp(int2((cell + 0.5) / float2(64.0, 36.0) * float2(w, h)), int2(0, 0), int2(w - 1, h - 1));
+    return float4(liveDepth.Load(int3(texel, 0)), sceneDepth.Load(int3(texel, 0)), texel.x, texel.y);
 }
