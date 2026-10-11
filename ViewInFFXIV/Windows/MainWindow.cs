@@ -269,7 +269,8 @@ public sealed partial class MainWindow : Window, IDisposable
             {
                 DrawWelcome();
                 DrawTwitchWelcome();
-                DrawWatchAgain();
+                // Hidden: determined not needed on the start page. Kept (not for removal) in case it returns.
+                // DrawWatchAgain();
             }
 
             return;
@@ -395,6 +396,7 @@ public sealed partial class MainWindow : Window, IDisposable
     }
 
     /// <summary>Under the welcome card: what you watched lately. Play starts a party with it; + lines it up.</summary>
+    // Currently not called: determined not needed on the start page, but not for removal.
     private void DrawWatchAgain()
     {
         if (Queue.History.Count == 0)
