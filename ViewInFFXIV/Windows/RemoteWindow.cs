@@ -66,8 +66,11 @@ internal sealed class RemoteWindow : Window
         var inner = ImGui.GetContentRegionAvail().X;
         var left = ImGui.GetCursorPosX();
         var twitch = plugin.Twitch;
-        var playback = twitch.Active ? null : plugin.HighPerformance.Playback;
-        if (twitch.Active)
+        var window = plugin.WindowShare;
+        var playback = twitch.Active || window.Active ? null : plugin.HighPerformance.Playback;
+        if (window.Active)
+            ImGui.TextUnformatted(Ui.Fit($"Window · {window.DisplayName}", inner - 64));
+        else if (twitch.Active)
             ImGui.TextUnformatted(Ui.Fit(twitch.Status.Offline ? $"{twitch.DisplayName} (offline)" : $"Twitch · {twitch.DisplayName}", inner - 64));
         else if (playback == null)
             Ui.Dim("Nothing playing yet");
@@ -83,7 +86,11 @@ internal sealed class RemoteWindow : Window
             plugin.Configuration.Save();
         }
 
-        if (twitch.Active)
+        if (window.Active)
+        {
+            MainWindow.DrawWindowButtons(plugin, 0.85f);
+        }
+        else if (twitch.Active)
         {
             if (twitch.Status.Title.Length > 0 && !twitch.Status.Offline)
                 Ui.Dim(Ui.Fit(twitch.Status.Title, inner));

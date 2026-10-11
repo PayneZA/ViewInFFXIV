@@ -150,6 +150,12 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Twitch volume, 0-100 (yours only).</summary>
     public int TwitchVolume { get; set; } = 100;
 
+    /// <summary>A window you put on the TV goes off screen at the TV's size (FFXIV windows never do).</summary>
+    public bool WindowPopOff { get; set; } = true;
+
+    /// <summary>Where the window popped off screen was, so it comes back even if the helper or the game crashed.</summary>
+    public Shared.SavedPlacement? PoppedWindow { get; set; }
+
     /// <summary>"auto" (Brave, else Chrome, else Edge) or a browser id from <see cref="Shared.Browsers"/>.</summary>
     public string Browser { get; set; } = Shared.Browsers.Auto;
 

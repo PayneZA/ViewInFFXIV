@@ -58,6 +58,18 @@ public static class ManagedOps
 
     public const string StreamTarget = "stream";
 
+    /// <summary>
+    /// Puts one of your windows on the TV, fitted with its aspect ratio kept; ends Twitch, the party keeps running, muted.
+    /// Arg = window handle (decimal), Arg2 = "1" to pop it off screen, Arg4 = the game's GPU adapter LUID (decimal).
+    /// </summary>
+    public const string Window = "ffWindow";
+
+    /// <summary>Takes the window off the TV (and puts it back where it was); the TV goes back to the party.</summary>
+    public const string WindowStop = "ffWindowStop";
+
+    /// <summary>Arg = "1": pop the shared window off screen at the TV's size; "0": put it back where it was.</summary>
+    public const string WindowPop = "ffWindowPop";
+
     /// <summary>Playback control; see <see cref="PlaybackCommands"/> for the argument format.</summary>
     public const string Control = "ffControl";
 

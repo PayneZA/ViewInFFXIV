@@ -5,8 +5,8 @@ using ViewInFFXIV.Shared;
 namespace ViewInFFXIV.Host;
 
 /// <summary>
-/// Hidden helper window: owns the ViewInFFXIV browsers (the watch party's and the stream's), captures the one on
-/// the TV on the GPU and answers the plugin's pipe.
+/// Hidden helper window: owns the ViewInFFXIV browsers (the watch party's and the stream's), captures what is on
+/// the TV (a window you share, else the stream, else the party) on the GPU and answers the plugin's pipe.
 /// </summary>
 internal sealed class HostForm : Form
 {
@@ -19,6 +19,8 @@ internal sealed class HostForm : Form
     // The stream browser (Twitch): its own profile. While it runs, the TV shows it and the party is muted here.
     private readonly ManagedBrowser stream = new(Twitch.TheaterScript, waitForAdBlock: false);
     private readonly Twitch twitch = new();
+    // A window of yours on the TV; while it is shared it beats the stream and the party.
+    private readonly TvWindow window;
     // Browser commands run one after another in the order they arrived (start before join, and so on).
     private Task managedChain = Task.CompletedTask;
     private Task streamChain = Task.CompletedTask;
@@ -51,6 +53,7 @@ internal sealed class HostForm : Form
     {
         // The plugin passes the game's process id; the helper (and its Brave) go away with the game.
         parentPid = args.Length >= 2 && args[0] == "--parent" && int.TryParse(args[1], out var pid) ? pid : 0;
+        window = new TvWindow(parentPid);
 
         pipe = new PipeServer(this);
         pageTimer = new System.Threading.Timer(_ =>
@@ -182,6 +185,7 @@ internal sealed class HostForm : Form
                 Playback = sample ? null : playback,
                 SampleVideo = sample,
             },
+            Window = window.Status,
             Stream = new StreamStatus
             {
                 State = twitchState,
@@ -228,7 +232,22 @@ internal sealed class HostForm : Form
                 ApplyAudio();
                 return;
             case ManagedOps.Twitch or ManagedOps.StreamStop:
+                // Twitch takes the TV from a shared window.
+                if (command.Op == ManagedOps.Twitch)
+                    StopWindow();
                 RunStream(command);
+                return;
+            case ManagedOps.Window:
+                ShareWindow(command);
+                return;
+            case ManagedOps.WindowStop:
+                StopWindow();
+                return;
+            case ManagedOps.WindowPop:
+                if (command.Arg == "1")
+                    window.PopOff(capture?.ArrivedFps ?? 0);
+                else
+                    window.PutBack();
                 return;
             case ManagedOps.Control:
                 // Playback must feel instant, so it does not queue behind room/name scripts.
@@ -334,15 +353,37 @@ internal sealed class HostForm : Form
         }
     }
 
-    /// <summary>The browser on the TV: the stream while it runs, else the party.</summary>
-    private ManagedBrowser OnTv => stream.IsRunning ? stream : managed;
+    /// <summary>
+    /// What is on the TV: a shared window, else the stream, else the party. Zero while the TV is blank (nothing on,
+    /// or the stream popped out or not stretched yet, which would show Twitch's page). The crop is what to show of
+    /// it; fit scales it (a window of any size) instead of copying it 1:1 (a browser sized for the TV).
+    /// </summary>
+    private IntPtr OnTv(out CropRect? crop, out bool fit)
+    {
+        fit = false;
+        crop = null;
+        if (window.Active)
+        {
+            fit = true;
+            crop = window.Crop;
+            return window.Hwnd;
+        }
 
-    /// <summary>Points the GPU capture at the browser on the TV (starts, retargets or stops it). UI thread.</summary>
+        if (stream.IsRunning)
+        {
+            crop = stream.Crop;
+            return stream.Shown || !streamClean ? IntPtr.Zero : stream.Hwnd;
+        }
+
+        crop = managed.Crop;
+        return managed.IsRunning ? managed.Hwnd : IntPtr.Zero;
+    }
+
+    /// <summary>Points the GPU capture at what is on the TV (starts, retargets or stops it). UI thread.</summary>
     private void SyncCapture()
     {
-        var source = OnTv;
-        // A popped-out (or not yet stretched) stream shows Twitch's page: the TV goes blank meanwhile.
-        if (!source.IsRunning || (source == stream && (stream.Shown || !streamClean)))
+        var source = OnTv(out _, out _);
+        if (source == IntPtr.Zero)
         {
             if (capture is { } idle && idle.Window != IntPtr.Zero)
                 idle.Stop();
@@ -350,17 +391,18 @@ internal sealed class HostForm : Form
         }
 
         // A failed start is not retried on every tick.
-        if (capture?.Window == source.Hwnd || failedCaptureWindow == source.Hwnd)
+        if (capture?.Window == source || failedCaptureWindow == source)
             return;
 
         try
         {
-            failedCaptureWindow = source.Hwnd;
+            failedCaptureWindow = source;
             capture ??= new GpuCapture(adapterLuid);
-            capture.Start(source.Hwnd);
+            capture.Start(source);
+            var app = source == window.Hwnd ? "the shared window" : (stream.IsRunning ? stream.Browser : managed.Browser)?.Name ?? "the browser";
             lastError = capture.AdapterMatched
                 ? null
-                : $"Could not find the game's graphics card, so the screen may stay black. Check that FFXIV and {source.Browser?.Name ?? "the browser"} use the same GPU.";
+                : $"Could not find the game's graphics card, so the screen may stay black. Check that FFXIV and {app} use the same GPU.";
             failedCaptureWindow = IntPtr.Zero;
         }
         catch (Exception ex)
@@ -369,12 +411,44 @@ internal sealed class HostForm : Form
         }
     }
 
-    /// <summary>The plugin's spatial audio goes to what is on the TV; the party stays silent under a stream.</summary>
+    /// <summary>Puts one of your windows on the TV (Twitch closes; the party carries on, muted).</summary>
+    private void ShareWindow(HostCommand command)
+    {
+        if (long.TryParse(command.Arg4, out var luid))
+            adapterLuid = luid;
+        if (stream.IsRunning)
+            RunStream(HostCommand.Managed(ManagedOps.StreamStop));
+
+        try
+        {
+            window.Start(long.TryParse(command.Arg, out var hwnd) ? (IntPtr)hwnd : IntPtr.Zero, command.Arg2 == "1", capture?.ArrivedFps ?? 0);
+        }
+        catch (Exception ex)
+        {
+            window.Stop();
+            window.Fail(ex.Message);
+        }
+
+        ApplyAudio();
+        SyncCapture();
+    }
+
+    /// <summary>Takes the window off the TV and puts it back where it was; the TV goes back to the party.</summary>
+    private void StopWindow()
+    {
+        if (window.Hwnd == IntPtr.Zero && window.Status.State == "off")
+            return;
+        window.Stop();
+        ApplyAudio();
+        SyncCapture();
+    }
+
+    /// <summary>The plugin's spatial audio goes to what is on the TV; the party stays silent under a stream or a window.</summary>
     private void ApplyAudio()
     {
         var gain = audioGain ?? "1";
         var pan = audioPan ?? "0";
-        youtube.SetAudio(stream.IsRunning ? "0" : gain, pan);
+        youtube.SetAudio(stream.IsRunning || window.Active ? "0" : gain, pan);
         _ = youtube.ApplyAudioAsync(managed.Port);
         if (double.TryParse(gain, NumberStyles.Float, CultureInfo.InvariantCulture, out var g) && double.IsFinite(g)
             && double.TryParse(pan, NumberStyles.Float, CultureInfo.InvariantCulture, out var p) && double.IsFinite(p))
@@ -484,11 +558,19 @@ internal sealed class HostForm : Form
         // Keep the browsers off-screen and un-minimised so they never stop rendering.
         managed.Guard();
         stream.Guard();
+        var shared = window.Active;
+        window.Guard(capture);
+        if (shared && !window.Active)
+            ApplyAudio();
 
-        // Follow the TV: a stream that ends, or whose browser is closed, hands it back to the party.
+        // Follow the TV: a window that closes, or a stream that ends or whose browser is closed, hands it back.
         SyncCapture();
         if (capture is { } gpu)
-            gpu.Crop = OnTv.Crop;
+        {
+            OnTv(out var crop, out var fit);
+            gpu.Crop = crop;
+            gpu.Fit = fit;
+        }
     }
 
     protected override void Dispose(bool disposing)
@@ -498,6 +580,8 @@ internal sealed class HostForm : Form
             guardTimer.Stop();
             guardTimer.Dispose();
             pageTimer.Dispose();
+            // A popped-off window goes back on your monitor before anything else closes.
+            window.Stop();
             parent?.Dispose();
             youtube.Dispose();
             capture?.Dispose();

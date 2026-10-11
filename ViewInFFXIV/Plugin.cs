@@ -19,7 +19,7 @@ public sealed class Plugin : IDalamudPlugin
     private const string AliasCommandName = "/viewinff";
     private const string ChatPrefix = "ViewInFFXIV";
     private const string Usage =
-        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | twitch <channel|out|in|stop> | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | mode [game|ui] | remote | apply <code> | stop | bench";
+        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | twitch <channel|out|in|stop> | window <title|off|back|stop> | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | mode [game|ui] | remote | apply <code> | stop | bench";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -49,6 +49,8 @@ public sealed class Plugin : IDalamudPlugin
     public HighPerformance HighPerformance { get; }
 
     public TwitchStream Twitch { get; }
+
+    public WindowShare WindowShare { get; }
 
     public Benchmark Benchmark { get; }
 
@@ -100,6 +102,7 @@ public sealed class Plugin : IDalamudPlugin
 
         HighPerformance = new HighPerformance(this);
         Twitch = new TwitchStream(this);
+        WindowShare = new WindowShare(this);
         Benchmark = new Benchmark(this);
         Queue = new WatchQueue(this);
         Thumbnails = new ThumbnailCache(TextureProvider, Log);
@@ -128,12 +131,13 @@ public sealed class Plugin : IDalamudPlugin
     public ImTextureID? Picture => ShowsVideo ? video?.Handle : null;
 
     /// <summary>
-    /// Twitch, while it is on, shows its video or its own "offline" card; otherwise the party once its room holds a video.
+    /// A shared window or Twitch (its video or its own "offline" card) while one is on; otherwise the party once its room
+    /// holds a video.
     /// </summary>
-    private bool ShowsVideo => Twitch.Active ? !Twitch.Starting : HighPerformance.ShowsVideo;
+    private bool ShowsVideo => WindowShare.Active || (Twitch.Active ? !Twitch.Starting : HighPerformance.ShowsVideo);
 
-    /// <summary>Something is on the TV the remote can control: a party room, or Twitch.</summary>
-    public bool Watching => Twitch.Active || (HighPerformance.Active && HighPerformance.Status.RoomUrl.Length > 0);
+    /// <summary>Something is on the TV the remote can control: a party room, Twitch, or a window.</summary>
+    public bool Watching => WindowShare.Active || Twitch.Active || (HighPerformance.Active && HighPerformance.Status.RoomUrl.Length > 0);
 
     /// <summary>The video texture shared by the helper, on the game's GPU (created on first use).</summary>
     public SharedVideo Video
@@ -159,6 +163,7 @@ public sealed class Plugin : IDalamudPlugin
         Renderer.Dispose();
         Benchmark.Dispose();
         Host.Dispose();
+        WindowShare.Dispose();
         video?.Dispose();
         CommandManager.RemoveHandler(CommandName);
         CommandManager.RemoveHandler(AliasCommandName);
@@ -174,7 +179,7 @@ public sealed class Plugin : IDalamudPlugin
         Configuration.RemoteShown = !Configuration.RemoteShown;
         Configuration.Save();
         if (Configuration.RemoteShown && !Watching)
-            Notify.Info("The remote shows during a party or Twitch");
+            Notify.Info("The remote shows while something is on the TV");
     }
 
     /// <summary>Moves the TV between the wall (in game) and your UI.</summary>
@@ -238,6 +243,7 @@ public sealed class Plugin : IDalamudPlugin
         Host.Tick();
         HighPerformance.Tick();
         Twitch.Tick();
+        WindowShare.Tick();
         Queue.Tick(HighPerformance.Playback);
         Audio.Tick();
         RenderTrace.Tick();
@@ -332,6 +338,34 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
+    private void OnWindowCommand(string rest)
+    {
+        switch (rest.ToLowerInvariant())
+        {
+            case "":
+                ChatGui.Print("Usage: /viewin window <part of its title> | off | back | stop. Your windows:", ChatPrefix);
+                foreach (var choice in WindowShare.ListWindows())
+                    ChatGui.Print($"  {choice.Title} ({choice.Process})", ChatPrefix);
+                break;
+            case "off" or "popoff" or "out":
+                WindowShare.SetPopped(true);
+                break;
+            case "back" or "in":
+                WindowShare.SetPopped(false);
+                break;
+            case "stop":
+                if (WindowShare.Active)
+                    WindowShare.Stop();
+                break;
+            default:
+                if (WindowShare.Find(rest) is { } found)
+                    WindowShare.Share(found);
+                else
+                    Notify.Error($"No window called \"{rest}\"", "Type part of its title; /viewin window lists your windows in chat.");
+                break;
+        }
+    }
+
     private void OnCommand(string command, string args)
     {
         var trimmed = args.Trim();
@@ -413,6 +447,9 @@ public sealed class Plugin : IDalamudPlugin
             case "twitch" or "ttv":
                 OnTwitchCommand(rest);
                 break;
+            case "window" or "win":
+                OnWindowCommand(rest);
+                break;
             case "search" or "yt":
                 if (rest.Length == 0)
                     ChatGui.Print("Usage: /viewin search <words>", ChatPrefix);
@@ -448,9 +485,9 @@ public sealed class Plugin : IDalamudPlugin
                 Benchmark.Start(Video.Device);
                 break;
             case "stop":
-                var hadTwitch = Twitch.Active;
+                var also = Twitch.Active ? " and Twitch" : WindowShare.Active ? " and the shared window" : "";
                 HighPerformance.Stop(everything: true);
-                Notify.Info(hadTwitch ? "Stopped the party and Twitch" : "Left the party");
+                Notify.Info(also.Length > 0 ? $"Stopped the party{also}" : "Left the party");
                 break;
             default:
                 ChatGui.Print(Usage, ChatPrefix);

@@ -264,20 +264,22 @@ public sealed partial class HighPerformance
 
     public void Hide() => plugin.Host.Send(HostCommand.Managed(ManagedOps.Hide));
 
-    /// <summary>A party you start or join takes the TV back from Twitch.</summary>
+    /// <summary>A party you start or join takes the TV back from Twitch or a shared window.</summary>
     private void EndTwitch()
     {
         if (plugin.Twitch.Active)
             plugin.Host.Send(HostCommand.Managed(ManagedOps.StreamStop));
+        if (plugin.WindowShare.Active)
+            plugin.Host.Send(HostCommand.Managed(ManagedOps.WindowStop));
     }
 
     /// <summary>
-    /// Leaves the party: closes its browser, and the helper too unless Twitch is on the TV. With
-    /// <paramref name="everything"/>, Twitch closes as well.
+    /// Leaves the party: closes its browser, and the helper too unless Twitch or a window is on the TV. With
+    /// <paramref name="everything"/>, those close as well.
     /// </summary>
     public void Stop(bool everything = false)
     {
-        if (plugin.Twitch.Active && !everything)
+        if ((plugin.Twitch.Active || plugin.WindowShare.Active) && !everything)
             plugin.Host.Send(HostCommand.Managed(ManagedOps.Stop));
         else
             plugin.Host.StopHost();
@@ -319,7 +321,12 @@ public sealed partial class HighPerformance
             startWith = null;
             connectingUntil = DateTime.MinValue;
             Dropped = hadRoom;
-            if (!hadRoom && plugin.Twitch.WasActive)
+            if (!hadRoom && plugin.WindowShare.WasActive)
+            {
+                Notify.Error("The window share stopped unexpectedly");
+                Notify.Chat("The window share stopped unexpectedly. Pick the window again from /viewin.");
+            }
+            else if (!hadRoom && plugin.Twitch.WasActive)
             {
                 Notify.Error("Twitch stopped unexpectedly");
                 Notify.Chat("Twitch stopped unexpectedly. Start the channel again from /viewin, or type /viewin twitch followed by its name.");

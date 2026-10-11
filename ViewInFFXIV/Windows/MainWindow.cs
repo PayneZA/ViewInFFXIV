@@ -145,8 +145,11 @@ public sealed partial class MainWindow : Window, IDisposable
         var playback = Party.Playback;
         var helper = plugin.Host.HelperAlive;
 
-        var twitch = Twitch.Active;
-        if (twitch)
+        var window = WindowShare.Active;
+        var twitch = Twitch.Active || window;
+        if (window)
+            Ui.Pill(WindowShare.Status.Popped ? "● WINDOW · off screen" : "● WINDOW", Ui.Live, filled: true);
+        else if (twitch)
             Ui.Pill(Twitch.Starting ? "◌ Twitch…" : Twitch.Status.Playing ? "● TWITCH" : "● Twitch · offline", Twitch.Status.Playing ? Ui.Live : Ui.TextDim, filled: Twitch.Status.Playing);
         else if (Party.Connecting)
             Ui.Pill($"◌ {Party.ConnectingActivity}…", Ui.Warn);
@@ -252,6 +255,12 @@ public sealed partial class MainWindow : Window, IDisposable
             return;
         }
 
+        if (WindowShare.Active)
+        {
+            DrawWindowShare();
+            return;
+        }
+
         if (Twitch.Active)
         {
             DrawTwitch();
@@ -269,6 +278,7 @@ public sealed partial class MainWindow : Window, IDisposable
             {
                 DrawWelcome();
                 DrawTwitchWelcome();
+                DrawWindowWelcome();
                 // Hidden: determined not needed on the start page. Kept (not for removal) in case it returns.
                 // DrawWatchAgain();
             }
@@ -292,6 +302,8 @@ public sealed partial class MainWindow : Window, IDisposable
             problems.Add(videoError);
         if (!string.IsNullOrEmpty(Twitch.Status.Error))
             problems.Add(Twitch.Status.Error);
+        if (plugin.Host.HelperAlive && !string.IsNullOrEmpty(WindowShare.Status.Error))
+            problems.Add(WindowShare.Status.Error);
         if (Party.Playback is { PlayerError.Length: > 0 } broken)
             problems.Add($"YouTube says: {broken.PlayerError}");
         if (problems.Count == 0)
@@ -481,13 +493,15 @@ public sealed partial class MainWindow : Window, IDisposable
     {
         ImGui.Spacing();
         var width = ImGui.GetContentRegionAvail().X;
-        ImGui.SetNextItemWidth(width - 44 - 36);
+        ImGui.SetNextItemWidth(width - 44 - 36 - 36);
         var enter = ImGui.InputTextWithHint("##search", "Search YouTube or paste a link…", ref searchInput, 512, ImGuiInputTextFlags.EnterReturnsTrue);
         ImGui.SameLine();
         if (ImGuiComponents.IconButton("##go", FontAwesomeIcon.Search) || enter)
             Submit(searchInput.Trim());
         ImGui.SameLine();
         DrawTwitchPopupButton();
+        ImGui.SameLine();
+        DrawWindowPopupButton();
     }
 
     private void Submit(string text)

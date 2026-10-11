@@ -1,20 +1,35 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <RootNamespace>ViewInFFXIV.Host</RootNamespace>
-    <AssemblyName>ViewInFFXIV.Host</AssemblyName>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\ViewInFFXIV.Shared\ViewInFFXIV.Shared.csproj" />
-  </ItemGroup>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RootNamespace>ViewInFFXIV.Host</RootNamespace>
+    <AssemblyName>ViewInFFXIV.Host</AssemblyName>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ViewInFFXIV.Shared\ViewInFFXIV.Shared.csproj" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="SharpDX.Direct3D11" Version="4.2.0" />
-  </ItemGroup>
-</Project>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- WithCulture=false: MSBuild would otherwise read "Fit.ps.cso" as a Pashto (ps) satellite resource. -->
+    <EmbeddedResource Include="Shaders\*.cso" WithCulture="false" LogicalName="ViewInFFXIV.Host.Shaders.%(Filename)%(Extension)" />
+  </ItemGroup>
+  <!-- Rebuild the fit shader when fxc (Windows SDK) is installed; the compiled .cso files are committed for builds without it. -->
+  <ItemGroup>
+    <_FxcCandidate Include="$(MSBuildProgramFiles32)\Windows Kits\10\bin\*\x64\fxc.exe" />
+  </ItemGroup>
+  <Target Name="CompileFitShaders" BeforeTargets="BeforeBuild" Inputs="Shaders\Fit.hlsl" Outputs="Shaders\Fit.vs.cso;Shaders\Fit.ps.cso" Condition="'@(_FxcCandidate)' != ''">
+    <PropertyGroup>
+      <_Fxc>%(_FxcCandidate.FullPath)</_Fxc>
+    </PropertyGroup>
+    <Exec Command="&quot;$(_Fxc)&quot; -nologo -T vs_5_0 -E vs -O3 -Fo &quot;Shaders\Fit.vs.cso&quot; &quot;Shaders\Fit.hlsl&quot;" />
+    <Exec Command="&quot;$(_Fxc)&quot; -nologo -T ps_5_0 -E ps -O3 -Fo &quot;Shaders\Fit.ps.cso&quot; &quot;Shaders\Fit.hlsl&quot;" />
+  </Target>
+</Project>

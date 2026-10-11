@@ -12,8 +12,9 @@ using D3D11Device = SharpDX.Direct3D11.Device;
 namespace ViewInFFXIV.Host;
 
 /// <summary>
-/// Captures the off-screen Brave window with Windows.Graphics.Capture and copies the video area, on the GPU,
-/// into a 1920x1080 texture shared with the game (NT handle + keyed mutex). No pixels touch the CPU.
+/// Captures the off-screen Brave window (or a window you share) with Windows.Graphics.Capture and copies the video
+/// area, on the GPU, into a 1920x1080 texture shared with the game (NT handle + keyed mutex); a shared window is
+/// scaled to fit. No pixels touch the CPU.
 /// Keyed mutex protocol: the helper acquires key 0 and releases key 1 when a frame is ready; the plugin
 /// acquires key 1, copies it into its own texture, and releases key 0. An unread frame is simply skipped.
 /// </summary>
@@ -34,6 +35,12 @@ internal sealed class GpuCapture : IDisposable
     private readonly RenderTargetView sharedTarget;
     private readonly IntPtr sharedHandle;
     private readonly object sync = new();
+    private readonly VertexShader fitVertex;
+    private readonly PixelShader fitPixel;
+    private readonly SamplerState fitSampler;
+    // The cropped window picture with its mip chain, for Fit (sized to the crop, recreated when that changes).
+    private Texture2D? stage;
+    private ShaderResourceView? stageView;
     private GraphicsCaptureItem? item;
     private Direct3D11CaptureFramePool? pool;
     private GraphicsCaptureSession? session;
@@ -80,6 +87,17 @@ internal sealed class GpuCapture : IDisposable
         sharedMutex = shared.QueryInterface<KeyedMutex>();
         sharedTarget = new RenderTargetView(device, shared);
 
+        fitVertex = new VertexShader(device, LoadShader("Fit.vs.cso"));
+        fitPixel = new PixelShader(device, LoadShader("Fit.ps.cso"));
+        fitSampler = new SamplerState(device, new SamplerStateDescription
+        {
+            Filter = Filter.MinMagMipLinear,
+            AddressU = TextureAddressMode.Clamp,
+            AddressV = TextureAddressMode.Clamp,
+            AddressW = TextureAddressMode.Clamp,
+            MaximumLod = float.MaxValue,
+        });
+
         // A fresh name per texture, so the plugin knows to reopen after a helper restart.
         SharedName = $"{IpcConstants.SharedTexturePrefix}.{Environment.ProcessId}.{Interlocked.Increment(ref instance)}";
         using var resource = shared.QueryInterface<SharpDX.DXGI.Resource1>();
@@ -120,6 +138,12 @@ internal sealed class GpuCapture : IDisposable
 
     /// <summary>Normalised window area to copy (the video player); null copies the whole window.</summary>
     public CropRect? Crop { get; set; }
+
+    /// <summary>
+    /// Scale the cropped area to fit the texture, aspect ratio kept (a window of any size). Off: copy it 1:1 (the
+    /// browsers, already sized so the video is exactly the texture's size).
+    /// </summary>
+    public bool Fit { get; set; }
 
     public IntPtr Window { get; private set; }
 
@@ -247,6 +271,12 @@ internal sealed class GpuCapture : IDisposable
             bottom = Math.Clamp((int)MathF.Round(crop.Bottom * height), top + 1, height);
         }
 
+        if (Fit && (right - left != IpcConstants.MaxWidth || bottom - top != IpcConstants.MaxHeight))
+        {
+            FitVideo(source, left, top, right - left, bottom - top);
+            return;
+        }
+
         // Larger than the texture: keep the centre. Smaller: centre it on black.
         var copyW = Math.Min(right - left, IpcConstants.MaxWidth);
         var copyH = Math.Min(bottom - top, IpcConstants.MaxHeight);
@@ -262,6 +292,60 @@ internal sealed class GpuCapture : IDisposable
             source, 0,
             new ResourceRegion(left, top, 0, left + copyW, top + copyH, 1),
             shared, 0, destX, destY);
+    }
+
+    /// <summary>Draws the cropped area scaled into the texture, as large as fits, centred on black.</summary>
+    private void FitVideo(Texture2D source, int left, int top, int width, int height)
+    {
+        var context = device.ImmediateContext;
+        if (stage == null || stage.Description.Width != width || stage.Description.Height != height)
+        {
+            stageView?.Dispose();
+            stage?.Dispose();
+            stage = new Texture2D(device, new Texture2DDescription
+            {
+                Width = width,
+                Height = height,
+                MipLevels = 0,
+                ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ShaderResource | BindFlags.RenderTarget,
+                OptionFlags = ResourceOptionFlags.GenerateMipMaps,
+            });
+            stageView = new ShaderResourceView(device, stage);
+        }
+
+        context.CopySubresourceRegion(source, 0, new ResourceRegion(left, top, 0, left + width, top + height, 1), stage, 0);
+        context.GenerateMips(stageView);
+
+        var scale = MathF.Min((float)IpcConstants.MaxWidth / width, (float)IpcConstants.MaxHeight / height);
+        var w = MathF.Round(width * scale);
+        var h = MathF.Round(height * scale);
+        context.ClearRenderTargetView(sharedTarget, new SharpDX.Mathematics.Interop.RawColor4(0, 0, 0, 1));
+        context.OutputMerger.SetRenderTargets(sharedTarget);
+        context.Rasterizer.SetViewport((IpcConstants.MaxWidth - w) / 2, (IpcConstants.MaxHeight - h) / 2, w, h);
+        context.InputAssembler.InputLayout = null;
+        context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleList;
+        context.VertexShader.Set(fitVertex);
+        context.PixelShader.Set(fitPixel);
+        context.PixelShader.SetShaderResource(0, stageView);
+        context.PixelShader.SetSampler(0, fitSampler);
+        context.Draw(3, 0);
+
+        // Unbind, so the next frame can copy into the stage and the shared texture can go to the game.
+        context.PixelShader.SetShaderResource(0, null);
+        context.OutputMerger.SetRenderTargets((RenderTargetView?)null);
+    }
+
+    private static byte[] LoadShader(string name)
+    {
+        using var stream = typeof(GpuCapture).Assembly.GetManifestResourceStream($"ViewInFFXIV.Host.Shaders.{name}")
+            ?? throw new InvalidOperationException($"Shader {name} is missing from the helper.");
+        using var memory = new MemoryStream();
+        stream.CopyTo(memory);
+        return memory.ToArray();
     }
 
     private void TickFps()
@@ -383,6 +467,11 @@ internal sealed class GpuCapture : IDisposable
             StopLocked();
         }
 
+        stageView?.Dispose();
+        stage?.Dispose();
+        fitSampler.Dispose();
+        fitPixel.Dispose();
+        fitVertex.Dispose();
         sharedTarget.Dispose();
         sharedMutex.Dispose();
         CloseHandle(sharedHandle);

@@ -52,6 +52,61 @@ public sealed class HostStatus
     /// <summary>The stream browser (Twitch). While it runs, the TV shows it instead of the party.</summary>
     [JsonPropertyName("stream")]
     public StreamStatus Stream { get; set; } = new();
+
+    /// <summary>One of your windows on the TV. While it is shared, the TV shows it instead of Twitch or the party.</summary>
+    [JsonPropertyName("window")]
+    public WindowStatus Window { get; set; } = new();
+}
+
+/// <summary>A window of yours on the TV, fitted with its aspect ratio kept.</summary>
+public sealed class WindowStatus
+{
+    /// <summary>off, ready, closed (the window went away), error.</summary>
+    [JsonPropertyName("state")]
+    public string State { get; set; } = "off";
+
+    [JsonPropertyName("error")]
+    public string? Error { get; set; }
+
+    [JsonPropertyName("hwnd")]
+    public long Hwnd { get; set; }
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = "";
+
+    /// <summary>The app's exe name without ".exe", e.g. "vlc".</summary>
+    [JsonPropertyName("process")]
+    public string Process { get; set; } = "";
+
+    /// <summary>Size of what goes on the TV (the window's inside), in pixels.</summary>
+    [JsonPropertyName("width")]
+    public int Width { get; set; }
+
+    [JsonPropertyName("height")]
+    public int Height { get; set; }
+
+    /// <summary>Moved off every monitor at the TV's size.</summary>
+    [JsonPropertyName("popped")]
+    public bool Popped { get; set; }
+
+    /// <summary>False for FFXIV windows: they are never moved.</summary>
+    [JsonPropertyName("canPopOff")]
+    public bool CanPopOff { get; set; }
+
+    /// <summary>Minimised on your monitor: Windows draws nothing for it, so the TV holds the last picture.</summary>
+    [JsonPropertyName("minimized")]
+    public bool Minimized { get; set; }
+
+    /// <summary>It was moving before Pop off and has drawn nothing since: the app stops drawing while off screen.</summary>
+    [JsonPropertyName("stalled")]
+    public bool Stalled { get; set; }
+
+    /// <summary>Where it was before Pop off (null while not popped), so the plugin can put it back if the helper dies.</summary>
+    [JsonPropertyName("original")]
+    public SavedPlacement? Original { get; set; }
+
+    [JsonIgnore]
+    public bool Active => State == "ready";
 }
 
 /// <summary>A live stream on the TV (Twitch), in its own browser and profile.</summary>
