@@ -7,22 +7,25 @@ using ViewInFFXIV.Host;
 
 namespace ViewInFFXIV.Windows;
 
-/// <summary>The Watch tab while one of your windows is on the TV, and the window list used to put it there.</summary>
+/// <summary>The Watch tab while an app is shared on the TV, and the app list used to share one.</summary>
 public sealed partial class MainWindow
 {
     private List<WindowChoice> windowList = [];
     private DateTime windowsListedUtc = DateTime.MinValue;
-    // The window list is a side option: folded away until you open it (this session only).
+    // The app list is a side option: folded away until you open it (this session only).
     private bool windowListOpen;
 
     private WindowShare WindowShare => plugin.WindowShare;
 
     private const string WindowNotes =
-        "Windows draws a yellow border around a window while it is shared; that's normal.\n" +
-        "Protected video (some streaming sites) shows black.\n" +
-        "The app's own sound plays as usual.";
+        "Your app stays where it is and shows on the TV just as it looks.\n" +
+        "Keep it open: a minimised app doesn't show.\n" +
+        "Browsers, Discord and similar apps pause while the game covers them; a second monitor helps.\n" +
+        "The yellow outline around it just means it's being shared.\n" +
+        "Some protected videos show black.\n" +
+        "Its sound plays from the app, as usual.";
 
-    /// <summary>The window's picture, what it is, pop off / put back, and the way back.</summary>
+    /// <summary>The picture, which app it is, how it's doing (with the fix when it's paused), and the way back.</summary>
     private void DrawWindowShare()
     {
         var status = WindowShare.Status;
@@ -30,35 +33,131 @@ public sealed partial class MainWindow
         DrawPicture(avail);
         using (titleFont.Push())
             ImGui.TextUnformatted(Ui.Fit(WindowShare.DisplayName, avail));
-        var meta = new List<string>();
-        if (status.Process.Length > 0)
-            meta.Add(status.Process);
-        if (status.Width > 0 && status.Height > 0)
-            meta.Add($"{status.Width}x{status.Height}");
-        meta.Add(status.Popped ? "off screen" : "on your monitor");
-        Ui.Dim(Ui.Fit(string.Join("  ·  ", meta), avail));
-
-        if (status.Stalled || status.Minimized)
-        {
-            ImGui.PushStyleColor(ImGuiCol.Text, Ui.Warn);
-            ImGui.TextWrapped(status.Stalled
-                ? "It stopped drawing off screen: this app pauses while it can't be seen. Put it back to keep it on your monitor."
-                : "It's minimised, and Windows doesn't draw minimised windows. Restore it, or pop it off.");
-            ImGui.PopStyleColor();
-        }
+        if (status.Title.Length > 0 && status.Title != WindowShare.DisplayName)
+            Ui.Dim(Ui.Fit(status.Title, avail));
 
         ImGui.Spacing();
-        DrawWindowButtons(plugin, 1f);
+        DrawWindowControls(plugin, 1f);
+        DrawWatchingTip();
 
         ImGui.Spacing();
         ImGui.Separator();
         ImGui.Spacing();
         var width = ImGui.GetContentRegionAvail().X;
-        if (WindowListHeader("Another window", width))
-            DrawWindowPicker(width, 150);
+        if (WindowListHeader("Share another app", width))
+            DrawWindowPicker(width, 180);
     }
 
-    /// <summary>A title row that folds the window list away; returns true while it is open.</summary>
+    /// <summary>
+    /// How the shared app is doing in one plain line, the one fix that helps when it's paused, and Stop (or back to
+    /// the party). Shared with the mini remote.
+    /// </summary>
+    internal static void DrawWindowControls(Plugin plugin, float scale)
+    {
+        var share = plugin.WindowShare;
+        var status = share.Status;
+        var size = 34f * scale;
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var party = plugin.HighPerformance.Active && plugin.HighPerformance.Status.RoomUrl.Length > 0;
+        var lineStart = ImGui.GetCursorPosX();
+        var textWidth = ImGui.GetContentRegionAvail().X - size - spacing;
+
+        ImGui.BeginGroup();
+        ImGui.PushTextWrapPos(lineStart + textWidth);
+        if (status.Minimized)
+        {
+            StatusLine(Ui.Warn, "Paused: it's minimised.");
+            if (status.Controllable)
+            {
+                if (Ui.AccentButton("Show it again"))
+                    share.ShowAgain();
+            }
+            else
+            {
+                Ui.Dim("Click it on your taskbar to show it again.");
+            }
+        }
+        else if (status.Paused)
+        {
+            StatusLine(Ui.Warn, status.CoveredByGame ? "Paused: the game is covering it." : "Paused: another window is covering it.");
+            if (status.OtherMonitor && status.Controllable && (status.OnGameMonitor || !status.CoveredByGame))
+            {
+                if (Ui.AccentButton("Move it to my other monitor"))
+                    share.MoveToOtherMonitor();
+            }
+            else if (status.OtherMonitor)
+            {
+                Ui.Dim("Drag it onto your other monitor, or keep part of it in view.");
+            }
+            else
+            {
+                Ui.Dim(status.CoveredByGame
+                    ? "This kind of app pauses when it's hidden. Keep part of it in view, or play the game in a window."
+                    : "This kind of app pauses when it's hidden. Keep part of it in view.");
+            }
+        }
+        else
+        {
+            StatusLine(Ui.Good, "Showing on the TV.");
+            // A small window makes a soft picture: one click makes it fill its screen (behind the game, out of your way).
+            if (status.CanEnlarge && !status.Maximized && (status.Width < 1600 || status.Height < 900))
+            {
+                if (ImGui.SmallButton("Make it bigger for a sharper TV"))
+                    share.MakeBigger();
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(status.OnGameMonitor ? "It fills its screen, behind the game, out of your way." : "It fills its screen.");
+            }
+        }
+
+        ImGui.PopTextWrapPos();
+        ImGui.EndGroup();
+
+        ImGui.SameLine(lineStart + textWidth + spacing);
+        if (Ui.RoundIconButton("##winstop", party ? FontAwesomeIcon.Users : FontAwesomeIcon.Stop, size,
+                tooltip: party ? "Back to the watch party" : "Stop sharing"))
+            share.Stop();
+    }
+
+    private static void StatusLine(Vector4 color, string text)
+    {
+        ImGui.PushStyleColor(ImGuiCol.Text, color);
+        ImGui.TextUnformatted("●");
+        ImGui.PopStyleColor();
+        ImGui.SameLine();
+        ImGui.TextWrapped(text);
+    }
+
+    /// <summary>Sharing a browser with YouTube or Twitch in it: point at the feature made for that.</summary>
+    private void DrawWatchingTip()
+    {
+        if (WindowShare.WatchingSite() is not { } site)
+            return;
+        var inParty = Party.Active && Party.Status.RoomUrl.Length > 0;
+        if (site.YouTube && inParty)
+            return;
+
+        ImGui.Spacing();
+        Ui.Card("watchtip", _ =>
+        {
+            ImGui.PushStyleColor(ImGuiCol.Text, Ui.TextDim);
+            if (site.TwitchChannel is { } channel)
+            {
+                ImGui.TextWrapped($"Watching {channel} on Twitch? Twitch on the TV shows just the video, sharper, with sound from the TV.");
+                ImGui.PopStyleColor();
+                if (ImGui.Button($"Put {channel} on the TV"))
+                    plugin.Twitch.Watch(channel);
+            }
+            else
+            {
+                ImGui.TextWrapped("Watching YouTube? A watch party plays it right on the TV, smoother, with sound from the TV, and friends can watch along in sync.");
+                ImGui.PopStyleColor();
+                if (ImGui.Button("Start a watch party"))
+                    Party.StartParty();
+            }
+        }, color: Ui.Accent with { W = 0.10f });
+    }
+
+    /// <summary>A title row that folds the app list away; returns true while it is open.</summary>
     private bool WindowListHeader(string label, float width)
     {
         var pos = ImGui.GetCursorScreenPos();
@@ -67,7 +166,7 @@ public sealed partial class MainWindow
             windowListOpen = !windowListOpen;
         var hovered = ImGui.IsItemHovered();
         if (hovered)
-            ImGui.SetTooltip(windowListOpen ? "Hide your windows" : "Show your windows");
+            ImGui.SetTooltip(windowListOpen ? "Hide your apps" : "Show your apps");
 
         var dl = ImGui.GetWindowDrawList();
         dl.AddText(pos + new Vector2(0, 2), Ui.Col(hovered ? Ui.Text : Ui.Text with { W = 0.9f }), label);
@@ -76,30 +175,8 @@ public sealed partial class MainWindow
         return windowListOpen;
     }
 
-    /// <summary>Pop off / put back, and stop (or back to the party). Shared with the mini remote.</summary>
-    internal static void DrawWindowButtons(Plugin plugin, float scale)
-    {
-        var share = plugin.WindowShare;
-        var status = share.Status;
-        var size = 34f * scale;
-        var popped = status.Popped;
-        if (Ui.RoundIconButton("##winpop", popped ? FontAwesomeIcon.WindowRestore : FontAwesomeIcon.SignOutAlt, size, accent: popped || status.Stalled,
-                tooltip: !status.CanPopOff ? "FFXIV windows stay where they are"
-                    : popped ? "Put back: on your monitor again, where it was"
-                    : "Pop off: off your screen at the TV's size\n(it keeps drawing; click its taskbar button to get it back)",
-                enabled: status.CanPopOff))
-            share.TogglePopOff();
-
-        var party = plugin.HighPerformance.Active && plugin.HighPerformance.Status.RoomUrl.Length > 0;
-        ImGui.SameLine();
-        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + MathF.Max(0, ImGui.GetContentRegionAvail().X - size));
-        if (Ui.RoundIconButton("##winstop", party ? FontAwesomeIcon.Users : FontAwesomeIcon.Stop, size,
-                tooltip: party ? "Back to the watch party" : "Stop showing the window"))
-            share.Stop();
-    }
-
-    /// <summary>"Pop it off screen", and your windows; one click puts one on the TV.</summary>
-    /// <returns>True when a window was put on the TV.</returns>
+    /// <summary>Your apps, newest first: the app's name with its window title under it. One click shares it.</summary>
+    /// <returns>True when an app was shared.</returns>
     private bool DrawWindowPicker(float width, float listHeight)
     {
         if (DateTime.UtcNow - windowsListedUtc > TimeSpan.FromSeconds(2))
@@ -108,15 +185,7 @@ public sealed partial class MainWindow
             windowsListedUtc = DateTime.UtcNow;
         }
 
-        var popOff = plugin.Configuration.WindowPopOff;
-        if (ImGui.Checkbox("Pop it off screen", ref popOff))
-        {
-            plugin.Configuration.WindowPopOff = popOff;
-            plugin.Configuration.Save();
-        }
-
-        if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Moves the window off your monitors at exactly the TV's size, so you don't have to size or hide it.\nIt goes back where it was when you stop. FFXIV windows always stay put.");
+        Ui.Dim("It stays where it is on your screen.");
         ImGui.SameLine();
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() + MathF.Max(0, ImGui.GetContentRegionAvail().X - 24));
         ImGuiComponents.HelpMarker(WindowNotes);
@@ -127,25 +196,28 @@ public sealed partial class MainWindow
             if (child.Success)
             {
                 if (windowList.Count == 0)
-                    Ui.Dim("No windows to show. Open the app you want on the TV.");
+                    Ui.Dim("No apps open. Open the one you want on the TV.");
 
                 var current = WindowShare.Active ? WindowShare.Status.Hwnd : 0;
                 var inner = ImGui.GetContentRegionAvail().X;
+                var line = ImGui.GetTextLineHeight();
+                var dl = ImGui.GetWindowDrawList();
                 foreach (var choice in windowList)
                 {
-                    var app = choice.Process.Length > 0 ? choice.Process : "?";
-                    var appWidth = ImGui.CalcTextSize(app).X;
-                    var start = ImGui.GetCursorPosX();
-                    if (ImGui.Selectable($"{Ui.Fit(choice.Title, inner - appWidth - 16)}##w{choice.Hwnd}", choice.Hwnd == current) && choice.Hwnd != current)
+                    var pos = ImGui.GetCursorScreenPos();
+                    var name = choice.App.Length > 0 ? choice.App : choice.Title;
+                    if (ImGui.Selectable($"##w{choice.Hwnd}", choice.Hwnd == current, ImGuiSelectableFlags.None, new Vector2(inner, (line * 2) + 2))
+                        && choice.Hwnd != current)
                     {
                         WindowShare.Share(choice);
                         started = true;
                     }
 
                     if (ImGui.IsItemHovered())
-                        ImGui.SetTooltip(choice.CanPopOff ? $"Put {choice.Title} on the TV" : $"Put {choice.Title} on the TV\n(FFXIV windows are never popped off screen)");
-                    ImGui.SameLine(start + inner - appWidth);
-                    Ui.Dim(app);
+                        ImGui.SetTooltip($"Show {name} on the TV");
+                    dl.AddText(pos, Ui.Col(Ui.Text), Ui.Fit(name, inner - 8));
+                    if (choice.Title != name)
+                        dl.AddText(pos + new Vector2(0, line + 1), Ui.Col(Ui.TextDim), Ui.Fit(choice.Title, inner - 8));
                 }
             }
         }
@@ -153,22 +225,22 @@ public sealed partial class MainWindow
         return started;
     }
 
-    /// <summary>Under the Twitch card, folded by default: put one of your windows on the TV without a party.</summary>
+    /// <summary>Under the Twitch card, folded by default: share one of your apps on the TV without a party.</summary>
     private void DrawWindowWelcome()
     {
         Ui.Card("window", width =>
         {
-            if (!WindowListHeader("A window on the TV", width))
+            if (!WindowListHeader("Share an app on the TV", width))
                 return;
             ImGui.PushStyleColor(ImGuiCol.Text, Ui.TextDim);
-            ImGui.TextWrapped("Pick any of your windows (a video player, a browser, another game) and it fills the screen, aspect ratio kept.");
+            ImGui.TextWrapped("Pick an app (a video player, a browser, a second game) and it shows on the TV.");
             ImGui.PopStyleColor();
             ImGui.Spacing();
-            DrawWindowPicker(width, 150);
+            DrawWindowPicker(width, 180);
         });
     }
 
-    /// <summary>In a party: a button by the search box that opens the window list.</summary>
+    /// <summary>In a party: a button by the search box that opens the app list.</summary>
     private void DrawWindowPopupButton()
     {
         if (ImGuiComponents.IconButton("##windowopen", FontAwesomeIcon.Desktop))
@@ -178,14 +250,14 @@ public sealed partial class MainWindow
         }
 
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Put one of your windows on the TV\n(the party carries on; you come back to it with one click)");
+            ImGui.SetTooltip("Share an app on the TV\n(the party carries on; you come back to it with one click)");
 
         using var popup = ImRaii.Popup("windowpick");
         if (!popup.Success)
             return;
-        ImGui.TextUnformatted("A window on the TV");
+        ImGui.TextUnformatted("Share an app on the TV");
         Ui.Dim("Just for you: friends keep watching the party.");
-        if (DrawWindowPicker(360, 200))
+        if (DrawWindowPicker(360, 220))
             ImGui.CloseCurrentPopup();
     }
 }

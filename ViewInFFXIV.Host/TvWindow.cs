@@ -5,31 +5,36 @@ using ViewInFFXIV.Shared;
 namespace ViewInFFXIV.Host;
 
 /// <summary>
-/// One of your windows on the TV. Only its inside goes on the TV (no title bar or borders), scaled to fit. Pop off
-/// moves it off every monitor at exactly the TV's size, where Windows keeps drawing it, and puts it back where it
-/// was afterwards. Clicking its taskbar button or Alt-Tabbing to it puts it back too, so it can never get lost.
+/// One of your windows mirrored on the TV, where it is: only its inside (no title bar or borders), scaled to fit.
+/// This follows it (closed, minimised, covered and paused) and offers the fixes: show it again, make it fill its
+/// monitor, or move it to a monitor the game isn't on.
 /// UI thread only; <see cref="Status"/> is a snapshot for the pipe thread.
 /// </summary>
 internal sealed class TvWindow(int gamePid)
 {
-    // Measure-and-correct rounds for the TV size: an app with its own size limits is left at its closest size.
-    private const int MaxSizeTries = 20;
+    // A window drawing at least this often counts as moving (a video, an animation), not a still page.
+    private const float MovingFps = 5;
 
-    private SavedPlacement? original;
-    private bool resizable;
-    private int sizeTries;
-    private DateTime poppedAt;
-    private bool movingBeforePop;
-    // It was the foreground window on the last tick; becoming it (not staying it) is what puts it back.
-    private bool foreground;
-    private bool stalled;
+    // Chromium's window class: Chrome, Edge, Brave and every Electron app (Discord, Spotify, ChatGPT...). They all
+    // stop drawing while another window covers them completely.
+    private const string ChromiumClass = "Chrome_WidgetWin_1";
+
+    private IntPtr game;
+    private bool browserLike;
+    private bool controllable;
+    private bool canEnlarge;
+    private bool moving;
+    private bool covered;
+    private bool coveredByGame;
+    private bool paused;
     private bool minimized;
+    private bool maximized;
+    private bool onGameMonitor;
     private int ticks;
     private string state = "off";
     private string? error;
     private string title = "";
-    private string process = "";
-    private bool canPopOff;
+    private string app = "";
     private int width;
     private int height;
 
@@ -38,46 +43,50 @@ internal sealed class TvWindow(int gamePid)
     /// <summary>On the TV (the window exists and is shared).</summary>
     public bool Active => Hwnd != IntPtr.Zero && state == "ready";
 
-    public bool Popped => original != null;
-
     /// <summary>The window's inside, as a part of what Windows.Graphics.Capture delivers.</summary>
     public CropRect? Crop { get; private set; }
 
     public WindowStatus Status { get; private set; } = new();
 
-    public void Start(IntPtr hwnd, bool popOff, float arrivedFps)
+    /// <summary>Shares a window; a minimised one is shown again (you picked it to see it).</summary>
+    public void Start(IntPtr hwnd, IntPtr gameWindow)
     {
         Stop();
         if (!IsWindow(hwnd))
-            throw new InvalidOperationException("That window is gone. Pick it again from the list.");
+            throw new InvalidOperationException("That app's window is gone. Pick it again from the list.");
         GetWindowThreadProcessId(hwnd, out var pid);
         if (pid == gamePid || pid == Environment.ProcessId)
-            throw new InvalidOperationException("The game can't show its own window on the TV.");
+            throw new InvalidOperationException("The game can't show itself on the TV.");
 
         Hwnd = hwnd;
-        process = ProcessName((int)pid);
-        canPopOff = !process.Equals("ffxiv_dx11", StringComparison.OrdinalIgnoreCase);
+        game = gameWindow;
         title = WindowTitle(hwnd);
+        app = AppName.Of((int)pid, title);
+        browserLike = ClassName(hwnd) == ChromiumClass;
+        // An app running as administrator can't be shown, enlarged or moved from here (Windows blocks it).
+        controllable = CanControl(hwnd);
+        canEnlarge = controllable && (GetWindowLong(hwnd, GwlStyle) & WsMaximizeBox) != 0;
         state = "ready";
         error = null;
+        if (controllable && IsIconic(hwnd))
+            ShowWindowAsync(hwnd, SwShowNoActivate);
         Measure();
-        if (popOff)
-            PopOff(arrivedFps);
         Publish();
     }
 
-    /// <summary>Takes the window off the TV and puts it back where it was.</summary>
+    /// <summary>Takes the window off the TV. The window itself is left as it is.</summary>
     public void Stop()
     {
-        PutBack();
         Hwnd = IntPtr.Zero;
+        game = IntPtr.Zero;
         Crop = null;
         state = "off";
         error = null;
-        title = "";
-        process = "";
+        title = app = "";
         width = height = 0;
-        minimized = false;
+        browserLike = controllable = canEnlarge = false;
+        minimized = maximized = onGameMonitor = false;
+        moving = covered = coveredByGame = paused = false;
         Publish();
     }
 
@@ -89,58 +98,57 @@ internal sealed class TvWindow(int gamePid)
         Publish();
     }
 
-    /// <summary>Off every monitor, sized so its inside is exactly the TV's size (when the app allows resizing).</summary>
-    public void PopOff(float arrivedFps)
+    /// <summary>One of the fixes (<see cref="ManagedOps.WindowShow"/> and the others).</summary>
+    public void Act(string? action)
     {
-        if (!Active || Popped)
-            return;
-        if (!canPopOff)
-        {
-            error = "FFXIV windows always stay where they are.";
-            Publish();
-            return;
-        }
-
-        var saved = SavedPlacement.Capture(Hwnd);
-        if (saved == null)
+        if (!Active || !controllable)
             return;
 
-        // Minimised or maximised windows can't simply be moved: show them restored first, without taking focus.
-        if (IsIconic(Hwnd) || IsZoomed(Hwnd))
+        switch (action)
         {
-            ShowWindow(Hwnd, SwShowNoActivate);
-            if (IsZoomed(Hwnd))
-                ShowWindow(Hwnd, SwRestore);
+            case ManagedOps.WindowShow:
+                if (IsIconic(Hwnd))
+                    ShowWindowAsync(Hwnd, SwShowNoActivate);
+                break;
+            case ManagedOps.WindowBigger when canEnlarge:
+                // Async: a hung app never stalls the helper.
+                ShowWindowAsync(Hwnd, SwShowMaximized);
+                break;
+            case ManagedOps.WindowMove when OtherMonitor() is { } target:
+                MoveTo(target);
+                break;
         }
-
-        resizable = (GetWindowLong(Hwnd, GwlStyle) & WsThickFrame) != 0;
-        original = saved;
-        poppedAt = DateTime.UtcNow;
-        movingBeforePop = arrivedFps > 5;
-        stalled = false;
-        sizeTries = 0;
-        error = null;
-        foreground = GetForegroundWindow() == Hwnd;
-        if (!MoveOff())
-        {
-            original = null;
-            error = "Windows won't let ViewInFFXIV move this window (it may run as administrator). It stays on the TV where it is.";
-        }
-
-        Publish();
     }
 
-    /// <summary>Back where it was before Pop off; it stays on the TV.</summary>
-    public void PutBack()
+    /// <summary>Puts it on another monitor: filling it when it can be maximised, else centred there.</summary>
+    private void MoveTo(Screen target)
     {
-        var saved = original;
-        original = null;
-        stalled = false;
-        saved?.Restore();
-        Publish();
+        var placement = new WindowPlacement { Length = Marshal.SizeOf<WindowPlacement>() };
+        if (!GetWindowPlacement(Hwnd, ref placement))
+            return;
+
+        var area = target.WorkingArea;
+        var normal = placement.NormalPosition;
+        int w = Math.Min(normal.Right - normal.Left, area.Width), h = Math.Min(normal.Bottom - normal.Top, area.Height);
+        var x = area.Left + ((area.Width - w) / 2);
+        var y = area.Top + ((area.Height - h) / 2);
+        placement.Flags = 0;
+        placement.NormalPosition = new NativeRect { Left = x, Top = y, Right = x + w, Bottom = y + h };
+        placement.ShowCmd = canEnlarge ? SwShowMaximized : SwShowNoActivate;
+        SetWindowPlacement(Hwnd, ref placement);
     }
 
-    /// <summary>Every guard tick (100 ms): follows the window, keeps a popped-off one off screen and at size.</summary>
+    /// <summary>The biggest monitor the game isn't on, if you have one.</summary>
+    private Screen? OtherMonitor()
+    {
+        var gameScreen = game != IntPtr.Zero ? Screen.FromHandle(game) : Screen.PrimaryScreen;
+        return Screen.AllScreens
+            .Where(s => s.DeviceName != gameScreen?.DeviceName)
+            .OrderByDescending(s => s.Bounds.Width * s.Bounds.Height)
+            .FirstOrDefault();
+    }
+
+    /// <summary>Every guard tick (100 ms): follows the window and how it is drawn.</summary>
     public void Guard(GpuCapture? capture)
     {
         if (Hwnd == IntPtr.Zero)
@@ -148,7 +156,6 @@ internal sealed class TvWindow(int gamePid)
 
         if (!IsWindow(Hwnd))
         {
-            original = null;
             Hwnd = IntPtr.Zero;
             Crop = null;
             state = "closed";
@@ -156,74 +163,50 @@ internal sealed class TvWindow(int gamePid)
             return;
         }
 
-        var now = DateTime.UtcNow;
-        if (Popped)
+        minimized = IsIconic(Hwnd);
+        maximized = !minimized && IsZoomed(Hwnd);
+        var arrived = capture?.ArrivedFps ?? 0;
+        if (++ticks % 5 == 0)
         {
-            minimized = false;
-            var wasForeground = foreground;
-            foreground = GetForegroundWindow() == Hwnd;
-            if (foreground && !wasForeground)
-            {
-                // Taskbar click or Alt-Tab: you want it, so it comes back to your monitor.
-                PutBack();
-            }
-            else if (IsIconic(Hwnd))
-            {
-                // Minimised windows are not drawn: back off screen, restored.
-                ShowWindow(Hwnd, SwShowNoActivate);
-                MoveOff();
-            }
-            else if (GetWindowRect(Hwnd, out var r) && SystemInformation.VirtualScreen.IntersectsWith(Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom)))
-            {
-                MoveOff();
-            }
-            else if (resizable && sizeTries < MaxSizeTries && ClientSize(out var w, out var h)
-                     && (w != IpcConstants.MaxWidth || h != IpcConstants.MaxHeight))
-            {
-                // Its DPI can change once it is off a monitor: measure and correct until the inside fits.
-                sizeTries++;
-                MoveOff();
-            }
-
-            // It was moving before Pop off and has drawn nothing since: the app pauses while it is off screen.
-            var arrived = capture?.ArrivedFps ?? 0;
-            if (arrived > 0)
-                stalled = false;
-            else if (Popped && movingBeforePop && now - poppedAt > TimeSpan.FromSeconds(3))
-                stalled = true;
-        }
-        else
-        {
-            stalled = false;
-            minimized = IsIconic(Hwnd);
+            var cover = minimized ? IntPtr.Zero : CoveringWindow();
+            covered = cover != IntPtr.Zero;
+            coveredByGame = covered && GetWindowThreadProcessId(cover, out var coverPid) != 0 && coverPid == gamePid;
+            onGameMonitor = game != IntPtr.Zero && MonitorFromWindow(Hwnd, MonitorDefaultToNearest) == MonitorFromWindow(game, MonitorDefaultToNearest);
         }
 
-        if (++ticks % 10 == 0)
+        // A still page delivers no frames either: only a browser-type app, or a window that was moving, counts as
+        // paused when it is covered and nothing arrives.
+        if (arrived >= MovingFps)
+            moving = true;
+        else if (!covered && arrived == 0)
+            moving = false; // in plain view and still: paused by its user, not by Windows
+        paused = covered && arrived == 0 && (browserLike || moving);
+
+        if (ticks % 10 == 0)
             title = WindowTitle(Hwnd);
         Measure();
         Publish();
     }
 
-    /// <summary>Moves it off every monitor (at the back of the stack, without activating it). False if refused.</summary>
-    private bool MoveOff()
+    /// <summary>A single visible window above it that covers it completely (the game in full screen, typically).</summary>
+    private IntPtr CoveringWindow()
     {
-        if (!GetWindowRect(Hwnd, out var outer))
-            return false;
+        if (!GetFrameBounds(Hwnd, out var me))
+            return IntPtr.Zero;
 
-        int w = outer.Right - outer.Left, h = outer.Bottom - outer.Top;
-        var flags = SwpNoActivate;
-        if (resizable && ClientSize(out var cw, out var ch))
+        var n = 0;
+        for (var w = GetWindow(Hwnd, GwHwndPrev); w != IntPtr.Zero && n++ < 1000; w = GetWindow(w, GwHwndPrev))
         {
-            w = Math.Clamp(w + (IpcConstants.MaxWidth - cw), 200, 8192);
-            h = Math.Clamp(h + (IpcConstants.MaxHeight - ch), 150, 8192);
-        }
-        else
-        {
-            flags |= SwpNoSize;
+            // Click-through overlays (game overlays, ACT's) are see-through: they hide nothing.
+            if (!IsWindowVisible(w) || IsIconic(w) || (GetWindowLong(w, GwlExStyle) & (WsExLayered | WsExTransparent)) != 0)
+                continue;
+            if (DwmGetWindowAttribute(w, DwmwaCloaked, out int cloaked, sizeof(int)) == 0 && cloaked != 0)
+                continue;
+            if (GetFrameBounds(w, out var r) && r.Left <= me.Left && r.Top <= me.Top && r.Right >= me.Right && r.Bottom >= me.Bottom)
+                return w;
         }
 
-        var x = SystemInformation.VirtualScreen.Left - w - 400;
-        return SetWindowPos(Hwnd, HwndBottom, x, SystemInformation.VirtualScreen.Top, w, h, flags);
+        return IntPtr.Zero;
     }
 
     /// <summary>The inside of the window, as a part of the visible frame (what the capture delivers).</summary>
@@ -252,16 +235,6 @@ internal sealed class TvWindow(int gamePid)
             Math.Clamp((origin.Y - frame.Top + height) / frameH, 0f, 1f));
     }
 
-    private bool ClientSize(out int w, out int h)
-    {
-        w = h = 0;
-        if (!GetClientRect(Hwnd, out var client))
-            return false;
-        w = client.Right - client.Left;
-        h = client.Bottom - client.Top;
-        return true;
-    }
-
     private void Publish()
     {
         Status = new WindowStatus
@@ -270,16 +243,28 @@ internal sealed class TvWindow(int gamePid)
             Error = error,
             Hwnd = Hwnd.ToInt64(),
             Title = title,
-            Process = process,
+            App = app,
             Width = width,
             Height = height,
-            Popped = Popped,
-            CanPopOff = canPopOff,
             Minimized = minimized,
-            Stalled = stalled,
-            Original = original,
+            Maximized = maximized,
+            Controllable = controllable,
+            CanEnlarge = canEnlarge,
+            Covered = covered,
+            CoveredByGame = coveredByGame,
+            Paused = paused,
+            OnGameMonitor = onGameMonitor,
+            OtherMonitor = Hwnd != IntPtr.Zero && Screen.AllScreens.Length > 1,
         };
     }
+
+    /// <summary>
+    /// Whether Windows lets us change it: a do-nothing SetWindowPos is refused (access denied) for a window of a
+    /// process running with higher rights, such as an app started as administrator.
+    /// </summary>
+    private static bool CanControl(IntPtr hwnd) =>
+        SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SwpNoSize | SwpNoMove | SwpNoZOrder | SwpNoActivate | SwpNoOwnerZOrder)
+        || Marshal.GetLastWin32Error() != ErrorAccessDenied;
 
     private static string WindowTitle(IntPtr hwnd)
     {
@@ -289,30 +274,33 @@ internal sealed class TvWindow(int gamePid)
         return text.ToString();
     }
 
-    private static string ProcessName(int pid)
+    private static string ClassName(IntPtr hwnd)
     {
-        try
-        {
-            using var p = System.Diagnostics.Process.GetProcessById(pid);
-            return p.ProcessName;
-        }
-        catch
-        {
-            return "";
-        }
+        var text = new StringBuilder(64);
+        GetClassName(hwnd, text, text.Capacity);
+        return text.ToString();
     }
 
     private static bool GetFrameBounds(IntPtr hwnd, out NativeRect bounds) =>
         DwmGetWindowAttribute(hwnd, DwmwaExtendedFrameBounds, out bounds, Marshal.SizeOf<NativeRect>()) == 0 || GetWindowRect(hwnd, out bounds);
 
+    private const int SwShowMaximized = 3;
     private const int SwShowNoActivate = 4;
-    private const int SwRestore = 9;
     private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
+    private const uint SwpNoOwnerZOrder = 0x0200;
+    private const int ErrorAccessDenied = 5;
+    private const int GwHwndPrev = 3;
     private const int GwlStyle = -16;
-    private const int WsThickFrame = 0x00040000;
+    private const int GwlExStyle = -20;
+    private const int WsMaximizeBox = 0x00010000;
+    private const int WsExLayered = 0x00080000;
+    private const int WsExTransparent = 0x00000020;
     private const int DwmwaExtendedFrameBounds = 9;
-    private static readonly IntPtr HwndBottom = new(1);
+    private const int DwmwaCloaked = 14;
+    private const uint MonitorDefaultToNearest = 2;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRect
@@ -330,8 +318,22 @@ internal sealed class TvWindow(int gamePid)
         public int Y;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowPlacement
+    {
+        public int Length;
+        public int Flags;
+        public int ShowCmd;
+        public NativePoint MinPosition;
+        public NativePoint MaxPosition;
+        public NativeRect NormalPosition;
+    }
+
     [DllImport("user32.dll")]
     private static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
 
     [DllImport("user32.dll")]
     private static extern bool IsIconic(IntPtr hWnd);
@@ -340,10 +342,10 @@ internal sealed class TvWindow(int gamePid)
     private static extern bool IsZoomed(IntPtr hWnd);
 
     [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 
     [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
+    private static extern IntPtr GetWindow(IntPtr hWnd, int uCmd);
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
@@ -351,8 +353,17 @@ internal sealed class TvWindow(int gamePid)
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hWnd, int index);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowPlacement(IntPtr hWnd, ref WindowPlacement placement);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPlacement(IntPtr hWnd, ref WindowPlacement placement);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect rect);
@@ -366,6 +377,12 @@ internal sealed class TvWindow(int gamePid)
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder text, int maxCount);
+
     [DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out NativeRect value, int size);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
 }

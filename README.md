@@ -42,11 +42,13 @@ Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), 
   button takes you back. Offline channels show a plain "offline" card until they go live. Pop out shows Twitch's
   page on your monitor if it asks something (a content warning, for example); pop in puts it back on the TV.
   Twitch's own ads do show.
-- **A window on the TV** — pick any of your windows (a video player, a browser, a second game client) and it fills
-  the screen, aspect ratio kept, without its title bar. **Pop it off screen** moves it off your monitors at exactly
-  the TV's size, so you don't have to size or hide it; it goes back where it was when you stop, and clicking its
-  taskbar button brings it back early. The app's own sound plays as usual. Windows draws a yellow border around a
-  shared window; some apps (browsers, Discord, games) pause while they're off screen, and the plugin tells you when.
+- **Share an app on the TV** — pick any app (a video player, a browser, a second game client) and it shows on the
+  screen just as it looks, aspect ratio kept, without its title bar. It stays where it is on your screen. If it gets
+  paused, the plugin says why in plain words with the one button that fixes it: **Show it again** when it's minimised,
+  **Move it to my other monitor** when the game covers a browser or Discord (they pause when hidden), and **Make it
+  bigger** for a sharper picture from a small window. Sharing YouTube or Twitch in a browser suggests the watch party
+  or Twitch on the TV instead. The app's own sound plays as usual; the yellow outline Windows draws just means it's
+  being shared.
 
 **Sound from the screen** — it gets quieter as you walk away, pans left/right with the camera and goes silent when you
 leave the screen's zone (Settings → Sound). With the screen on your UI it plays at your own volume.
@@ -68,9 +70,9 @@ Everything is in the window; these are for macros and chat.
 | `/viewin mode [game\|ui]` | Put the TV in game or on your UI (no argument: switch) |
 | `/viewin remote` | Show or hide the mini remote |
 | `/viewin twitch <channel>` / `twitch out\|in\|stop` | Put a Twitch channel on the TV / pop its page out or in / stop it |
-| `/viewin window <title>` / `window off\|back\|stop` | Put a window on the TV (no title lists them) / pop it off screen or back / stop it |
+| `/viewin window <app>` / `window show\|bigger\|move\|stop` | Share an app on the TV (no name lists them) / show it again, make it bigger, move it to your other monitor / stop |
 | `/viewin browser auto\|brave\|chrome\|edge` | Pick the browser (switches a running party over) |
-| `/viewin stop` | Leave the party, stop Twitch or the window, and close the browsers |
+| `/viewin stop` | Leave the party, stop Twitch or sharing, and close the browsers |
 | `/viewin bench` | 25-second performance check, results in chat |
 
 Your name in the room is always your character name.

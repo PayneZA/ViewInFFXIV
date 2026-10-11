@@ -4,25 +4,28 @@ using ViewInFFXIV.Shared;
 
 namespace ViewInFFXIV.Host;
 
-/// <summary>One of your windows, as the window list offers it.</summary>
-public sealed record WindowChoice(nint Hwnd, string Title, string Process, bool CanPopOff);
+/// <summary>One of your apps' windows, as the list offers it: the app's own name and the window's title.</summary>
+public sealed record WindowChoice(nint Hwnd, string Title, string App);
 
 /// <summary>
-/// One of your windows on the TV, scaled to fit with its aspect ratio kept. Pop off moves it off every monitor at
-/// exactly the TV's size, and puts it back where it was afterwards. While it is shared, the TV shows it instead of
-/// Twitch or the party (which keeps going, muted for you). Its own sound plays as usual.
+/// One of your apps mirrored on the TV, scaled to fit with its aspect ratio kept. The window stays where it is.
+/// When something stops the picture (minimised, or hidden behind the game), this says so in plain words and offers
+/// the one fix that helps. While it is shared, the TV shows it instead of Twitch or the party (which keeps going,
+/// muted for you). The app's own sound plays as usual.
 /// </summary>
-public sealed class WindowShare : IDisposable
+public sealed class WindowShare
 {
     private readonly Plugin plugin;
-    private readonly Dictionary<int, string> processNames = [];
+    private readonly Dictionary<int, string> appNames = [];
     private string? lastError;
     // The window last asked for, and the one whose "on the TV" notice was shown.
     private long wanted;
     private long announced;
-    private bool stalledReported;
-    private bool minimizedReported;
+    // Each notice once per share; the Watch tab and the remote always show the current state.
+    private bool pausedReported;
     private bool closedReported;
+    // Enlarging or moving brings the window to the front: the game takes the focus back right after.
+    private DateTime refocusAt = DateTime.MinValue;
 
     public WindowShare(Plugin plugin)
     {
@@ -36,15 +39,18 @@ public sealed class WindowShare : IDisposable
     /// <summary>A window was on the TV as of the last tick (to word a helper crash).</summary>
     public bool WasActive { get; private set; }
 
-    /// <summary>The window's title, else its app.</summary>
-    public string DisplayName => Status.Title.Length > 0 ? Status.Title : Status.Process.Length > 0 ? Status.Process : "A window";
+    /// <summary>The app's name, else the window's title.</summary>
+    public string DisplayName => Status.App.Length > 0 ? Status.App : Status.Title.Length > 0 ? Status.Title : "An app";
 
-    /// <summary>Puts a window on the TV, popped off screen if you chose that (FFXIV windows never are).</summary>
+    /// <summary>The TV shows nothing new: the window is minimised, or hidden and paused.</summary>
+    public bool Stuck => Active && (Status.Minimized || Status.Paused);
+
+    /// <summary>Mirrors an app's window on the TV (a minimised one is shown again).</summary>
     public void Share(WindowChoice choice)
     {
         if (!IsWindow(choice.Hwnd))
         {
-            Notify.Error("That window is gone", "Pick it again from the list.");
+            Notify.Error("That app's window is gone", "Pick it again from the list.");
             return;
         }
 
@@ -52,12 +58,11 @@ public sealed class WindowShare : IDisposable
         plugin.HighPerformance.PutScreenUp();
         wanted = choice.Hwnd;
         announced = 0;
-        stalledReported = minimizedReported = closedReported = false;
-        var popOff = plugin.Configuration.WindowPopOff && choice.CanPopOff;
-        plugin.Host.Send(HostCommand.Managed(ManagedOps.Window, choice.Hwnd.ToString(), popOff ? "1" : "0", null, plugin.Video.AdapterLuid.ToString()));
+        pausedReported = closedReported = false;
+        plugin.Host.Send(HostCommand.Managed(ManagedOps.Window, choice.Hwnd.ToString(), null, GameWindow().ToString(), plugin.Video.AdapterLuid.ToString()));
     }
 
-    /// <summary>Takes the window off the TV (and puts it back): back to the party if you are in one, else everything closes.</summary>
+    /// <summary>Takes the app off the TV: back to the party if you are in one, else everything closes.</summary>
     public void Stop()
     {
         wanted = 0;
@@ -67,26 +72,26 @@ public sealed class WindowShare : IDisposable
             plugin.Host.StopHost();
     }
 
-    /// <summary>Pop off (off every monitor, at the TV's size) or put it back on your monitor.</summary>
-    public void TogglePopOff() => SetPopped(!Status.Popped);
+    /// <summary>Shows a minimised window again, without taking the focus.</summary>
+    public void ShowAgain() => Act(ManagedOps.WindowShow, refocus: false);
 
-    public void SetPopped(bool popped)
+    /// <summary>Makes it fill its monitor (behind the game, if it shares the game's monitor).</summary>
+    public void MakeBigger() => Act(ManagedOps.WindowBigger, refocus: true);
+
+    /// <summary>Moves it to a monitor the game isn't on, so the game no longer covers it.</summary>
+    public void MoveToOtherMonitor() => Act(ManagedOps.WindowMove, refocus: true);
+
+    private void Act(string action, bool refocus)
     {
-        if (!Active)
+        if (!Active || !Status.Controllable)
             return;
-        if (popped && !Status.CanPopOff)
-        {
-            Notify.Info("FFXIV windows stay where they are");
-            return;
-        }
-
-        stalledReported = false;
-        plugin.Host.Send(HostCommand.Managed(ManagedOps.WindowPop, popped ? "1" : "0"));
+        plugin.Host.Send(HostCommand.Managed(ManagedOps.WindowAct, action));
+        if (refocus)
+            refocusAt = DateTime.UtcNow + TimeSpan.FromMilliseconds(300);
     }
 
     /// <summary>
-    /// Your windows that can go on the TV, in the order Alt-Tab shows them. Leaves out the game itself and
-    /// ViewInFFXIV's own browsers.
+    /// Your apps' windows, in the order Alt-Tab shows them. Leaves out the game itself and ViewInFFXIV's own browsers.
     /// </summary>
     public List<WindowChoice> ListWindows()
     {
@@ -117,44 +122,66 @@ public sealed class WindowShare : IDisposable
             if (text.Length == 0)
                 return true;
 
-            var process = ProcessName((int)pid);
-            found.Add(new WindowChoice(hwnd, text.ToString(), process, !process.Equals("ffxiv_dx11", StringComparison.OrdinalIgnoreCase)));
+            var title = text.ToString();
+            found.Add(new WindowChoice(hwnd, title, NameOf((int)pid, title)));
             return true;
         }, 0);
         return found;
     }
 
     /// <summary>First window whose title (or app) contains the text, for /viewin window.</summary>
-    public WindowChoice? Find(string text) =>
-        ListWindows().FirstOrDefault(w => w.Title.Contains(text, StringComparison.OrdinalIgnoreCase))
-        ?? ListWindows().FirstOrDefault(w => w.Process.Contains(text, StringComparison.OrdinalIgnoreCase));
-
-    private string ProcessName(int pid)
+    public WindowChoice? Find(string text)
     {
-        if (processNames.TryGetValue(pid, out var name))
-            return name;
-        try
-        {
-            using var p = System.Diagnostics.Process.GetProcessById(pid);
-            name = p.ProcessName;
-        }
-        catch
-        {
-            name = "";
-        }
+        var windows = ListWindows();
+        return windows.FirstOrDefault(w => w.Title.Contains(text, StringComparison.OrdinalIgnoreCase))
+            ?? windows.FirstOrDefault(w => w.App.Contains(text, StringComparison.OrdinalIgnoreCase));
+    }
 
-        if (processNames.Count > 256)
-            processNames.Clear();
-        processNames[pid] = name;
+    /// <summary>"Watching YouTube?" / "Watching Twitch?" from the shared window's title, else null.</summary>
+    public (bool YouTube, string? TwitchChannel)? WatchingSite()
+    {
+        var title = Status.Title;
+        if (title.Contains("YouTube", StringComparison.OrdinalIgnoreCase))
+            return (true, null);
+
+        // Twitch titles read "channel - Twitch".
+        var twitch = title.IndexOf(" - Twitch", StringComparison.OrdinalIgnoreCase);
+        if (twitch > 0 && TwitchChannel.Parse(title[..twitch].Trim()) is { } channel)
+            return (false, channel);
+        return null;
+    }
+
+    private string NameOf(int pid, string title)
+    {
+        if (appNames.TryGetValue(pid, out var name))
+            return name;
+        name = AppName.Of(pid, title);
+        if (appNames.Count > 256)
+            appNames.Clear();
+        // Store apps all run in one host: their name is their title, which changes, so it is not kept.
+        if (name != title)
+            appNames[pid] = name;
         return name;
     }
 
-    /// <summary>Runs every framework tick: the notices, and putting a popped-off window back if the helper could not.</summary>
+    private static unsafe nint GameWindow()
+    {
+        var framework = FFXIVClientStructs.FFXIV.Client.System.Framework.Framework.Instance();
+        return framework != null && framework->GameWindow != null ? framework->GameWindow->WindowHandle : 0;
+    }
+
+    /// <summary>Runs every framework tick: the notices, and taking the focus back after a fix.</summary>
     public void Tick()
     {
         var status = Status;
         WasActive = Active;
-        KeepPlacement(status);
+
+        if (refocusAt != DateTime.MinValue && DateTime.UtcNow >= refocusAt)
+        {
+            refocusAt = DateTime.MinValue;
+            if (GameWindow() is var game and not 0)
+                SetForegroundWindow(game);
+        }
 
         if (Active && status.Hwnd == wanted && wanted != announced)
         {
@@ -167,7 +194,7 @@ public sealed class WindowShare : IDisposable
             if (!closedReported)
             {
                 closedReported = true;
-                Notify.Info("The shared window closed");
+                Notify.Info($"{(DisplayName == "An app" ? "The shared app" : DisplayName)} was closed");
                 Stop();
             }
 
@@ -175,20 +202,12 @@ public sealed class WindowShare : IDisposable
         }
 
         closedReported = false;
-        if (Active && status.Stalled && !stalledReported)
-        {
-            stalledReported = true;
-            Notify.Warning("The window stopped drawing", "Some apps (browsers, Discord, games) pause while they're off screen. Press Put back to keep it on your monitor.");
-        }
 
-        if (Active && status.Minimized && !minimizedReported)
+        // A short toast only when you're not looking at the window, which says the same with a button to fix it.
+        if (Stuck && !pausedReported && !plugin.MainWindowOpen)
         {
-            minimizedReported = true;
-            Notify.Warning("The shared window is minimised", "Windows doesn't draw minimised windows, so the TV holds the last picture. Restore it, or press Pop off.");
-        }
-        else if (!status.Minimized)
-        {
-            minimizedReported = false;
+            pausedReported = true;
+            Notify.Warning("The app on the TV is paused", "Open /viewin to get it moving again.");
         }
 
         var error = plugin.Host.HelperAlive ? status.Error : null;
@@ -196,56 +215,8 @@ public sealed class WindowShare : IDisposable
         {
             lastError = error;
             if (!string.IsNullOrEmpty(error))
-                Notify.Error("Window share problem", error);
+                Notify.Error("Couldn't show that app", error);
         }
-    }
-
-    /// <summary>
-    /// Keeps a copy of where a popped-off window was. If the helper is gone (or no longer has it popped off) while
-    /// the window is still off every monitor, it is put back from here.
-    /// </summary>
-    private void KeepPlacement(WindowStatus status)
-    {
-        var config = plugin.Configuration;
-        var helper = plugin.Host.HelperAlive;
-        if (helper && status is { Popped: true, Original: { } original })
-        {
-            if (config.PoppedWindow is not { } kept || kept.Hwnd != original.Hwnd || kept.Left != original.Left || kept.Top != original.Top)
-            {
-                config.PoppedWindow = original;
-                config.Save();
-            }
-
-            return;
-        }
-
-        if (config.PoppedWindow is { } saved)
-        {
-            RestoreSaved(saved);
-        }
-    }
-
-    private void RestoreSaved(SavedPlacement saved)
-    {
-        try
-        {
-            if (saved.IsOffScreen() && saved.Restore())
-                Plugin.Log.Information("Put the shared window back on your monitor.");
-        }
-        catch (Exception ex)
-        {
-            Plugin.Log.Warning(ex, "Could not put the shared window back");
-        }
-
-        plugin.Configuration.PoppedWindow = null;
-        plugin.Configuration.Save();
-    }
-
-    /// <summary>On unload, after the helper has closed: a window it left off screen comes back.</summary>
-    public void Dispose()
-    {
-        if (plugin.Configuration.PoppedWindow is { } saved)
-            RestoreSaved(saved);
     }
 
     private const int GwOwner = 4;
@@ -263,6 +234,9 @@ public sealed class WindowShare : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(nint hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(nint hWnd);
 
     [DllImport("user32.dll")]
     private static extern nint GetWindow(nint hWnd, int uCmd);

@@ -243,11 +243,8 @@ internal sealed class HostForm : Form
             case ManagedOps.WindowStop:
                 StopWindow();
                 return;
-            case ManagedOps.WindowPop:
-                if (command.Arg == "1")
-                    window.PopOff(capture?.ArrivedFps ?? 0);
-                else
-                    window.PutBack();
+            case ManagedOps.WindowAct:
+                window.Act(command.Arg);
                 return;
             case ManagedOps.Control:
                 // Playback must feel instant, so it does not queue behind room/name scripts.
@@ -421,7 +418,9 @@ internal sealed class HostForm : Form
 
         try
         {
-            window.Start(long.TryParse(command.Arg, out var hwnd) ? (IntPtr)hwnd : IntPtr.Zero, command.Arg2 == "1", capture?.ArrivedFps ?? 0);
+            window.Start(
+                long.TryParse(command.Arg, out var hwnd) ? (IntPtr)hwnd : IntPtr.Zero,
+                long.TryParse(command.Arg3, out var game) ? (IntPtr)game : IntPtr.Zero);
         }
         catch (Exception ex)
         {
@@ -433,7 +432,7 @@ internal sealed class HostForm : Form
         SyncCapture();
     }
 
-    /// <summary>Takes the window off the TV and puts it back where it was; the TV goes back to the party.</summary>
+    /// <summary>Takes the window off the TV; the TV goes back to the party.</summary>
     private void StopWindow()
     {
         if (window.Hwnd == IntPtr.Zero && window.Status.State == "off")
@@ -580,8 +579,6 @@ internal sealed class HostForm : Form
             guardTimer.Stop();
             guardTimer.Dispose();
             pageTimer.Dispose();
-            // A popped-off window goes back on your monitor before anything else closes.
-            window.Stop();
             parent?.Dispose();
             youtube.Dispose();
             capture?.Dispose();

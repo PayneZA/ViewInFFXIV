@@ -323,8 +323,8 @@ public sealed partial class HighPerformance
             Dropped = hadRoom;
             if (!hadRoom && plugin.WindowShare.WasActive)
             {
-                Notify.Error("The window share stopped unexpectedly");
-                Notify.Chat("The window share stopped unexpectedly. Pick the window again from /viewin.");
+                Notify.Error("Sharing stopped unexpectedly");
+                Notify.Chat("Sharing your app on the TV stopped unexpectedly. Pick it again from /viewin.");
             }
             else if (!hadRoom && plugin.Twitch.WasActive)
             {

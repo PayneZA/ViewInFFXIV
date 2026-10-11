@@ -148,7 +148,7 @@ public sealed partial class MainWindow : Window, IDisposable
         var window = WindowShare.Active;
         var twitch = Twitch.Active || window;
         if (window)
-            Ui.Pill(WindowShare.Status.Popped ? "● WINDOW · off screen" : "● WINDOW", Ui.Live, filled: true);
+            Ui.Pill(WindowShare.Stuck ? "● SHARING · paused" : "● SHARING", WindowShare.Stuck ? Ui.Warn : Ui.Live, filled: true);
         else if (twitch)
             Ui.Pill(Twitch.Starting ? "◌ Twitch…" : Twitch.Status.Playing ? "● TWITCH" : "● Twitch · offline", Twitch.Status.Playing ? Ui.Live : Ui.TextDim, filled: Twitch.Status.Playing);
         else if (Party.Connecting)

@@ -74,9 +74,9 @@ public sealed class WindowStatus
     [JsonPropertyName("title")]
     public string Title { get; set; } = "";
 
-    /// <summary>The app's exe name without ".exe", e.g. "vlc".</summary>
-    [JsonPropertyName("process")]
-    public string Process { get; set; } = "";
+    /// <summary>The app's own name, e.g. "Brave Browser" (<see cref="AppName"/>).</summary>
+    [JsonPropertyName("app")]
+    public string App { get; set; } = "";
 
     /// <summary>Size of what goes on the TV (the window's inside), in pixels.</summary>
     [JsonPropertyName("width")]
@@ -85,25 +85,45 @@ public sealed class WindowStatus
     [JsonPropertyName("height")]
     public int Height { get; set; }
 
-    /// <summary>Moved off every monitor at the TV's size.</summary>
-    [JsonPropertyName("popped")]
-    public bool Popped { get; set; }
-
-    /// <summary>False for FFXIV windows: they are never moved.</summary>
-    [JsonPropertyName("canPopOff")]
-    public bool CanPopOff { get; set; }
-
-    /// <summary>Minimised on your monitor: Windows draws nothing for it, so the TV holds the last picture.</summary>
+    /// <summary>Minimised: Windows draws nothing for it, so the TV holds the last picture.</summary>
     [JsonPropertyName("minimized")]
     public bool Minimized { get; set; }
 
-    /// <summary>It was moving before Pop off and has drawn nothing since: the app stops drawing while off screen.</summary>
-    [JsonPropertyName("stalled")]
-    public bool Stalled { get; set; }
+    [JsonPropertyName("maximized")]
+    public bool Maximized { get; set; }
 
-    /// <summary>Where it was before Pop off (null while not popped), so the plugin can put it back if the helper dies.</summary>
-    [JsonPropertyName("original")]
-    public SavedPlacement? Original { get; set; }
+    /// <summary>
+    /// ViewInFFXIV may show, enlarge and move it. False for apps running as administrator: Windows doesn't allow it.
+    /// </summary>
+    [JsonPropertyName("controllable")]
+    public bool Controllable { get; set; }
+
+    /// <summary>It can be made to fill its monitor (it has a maximise button).</summary>
+    [JsonPropertyName("canEnlarge")]
+    public bool CanEnlarge { get; set; }
+
+    /// <summary>Another window covers it completely.</summary>
+    [JsonPropertyName("covered")]
+    public bool Covered { get; set; }
+
+    /// <summary>The window covering it is the game.</summary>
+    [JsonPropertyName("coveredByGame")]
+    public bool CoveredByGame { get; set; }
+
+    /// <summary>
+    /// Covered and drawing nothing: browser-type apps (Chrome, Edge, Discord, Spotify...) pause while hidden, and
+    /// so does anything that was moving and froze when it got covered.
+    /// </summary>
+    [JsonPropertyName("paused")]
+    public bool Paused { get; set; }
+
+    /// <summary>It sits on the same monitor as the game.</summary>
+    [JsonPropertyName("onGameMonitor")]
+    public bool OnGameMonitor { get; set; }
+
+    /// <summary>You have a monitor the game isn't on, to move it to.</summary>
+    [JsonPropertyName("otherMonitor")]
+    public bool OtherMonitor { get; set; }
 
     [JsonIgnore]
     public bool Active => State == "ready";

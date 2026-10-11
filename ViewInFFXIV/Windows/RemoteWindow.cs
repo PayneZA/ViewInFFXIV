@@ -69,7 +69,7 @@ internal sealed class RemoteWindow : Window
         var window = plugin.WindowShare;
         var playback = twitch.Active || window.Active ? null : plugin.HighPerformance.Playback;
         if (window.Active)
-            ImGui.TextUnformatted(Ui.Fit($"Window · {window.DisplayName}", inner - 64));
+            ImGui.TextUnformatted(Ui.Fit($"Sharing · {window.DisplayName}", inner - 64));
         else if (twitch.Active)
             ImGui.TextUnformatted(Ui.Fit(twitch.Status.Offline ? $"{twitch.DisplayName} (offline)" : $"Twitch · {twitch.DisplayName}", inner - 64));
         else if (playback == null)
@@ -88,7 +88,7 @@ internal sealed class RemoteWindow : Window
 
         if (window.Active)
         {
-            MainWindow.DrawWindowButtons(plugin, 0.85f);
+            MainWindow.DrawWindowControls(plugin, 0.85f);
         }
         else if (twitch.Active)
         {

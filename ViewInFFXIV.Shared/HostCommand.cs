@@ -59,16 +59,29 @@ public static class ManagedOps
     public const string StreamTarget = "stream";
 
     /// <summary>
-    /// Puts one of your windows on the TV, fitted with its aspect ratio kept; ends Twitch, the party keeps running, muted.
-    /// Arg = window handle (decimal), Arg2 = "1" to pop it off screen, Arg4 = the game's GPU adapter LUID (decimal).
+    /// Mirrors one of your windows on the TV, fitted with its aspect ratio kept; ends Twitch, the party keeps running,
+    /// muted. A minimised window is shown again. Arg = window handle (decimal), Arg3 = the game's window handle
+    /// (decimal), Arg4 = the game's GPU adapter LUID (decimal).
     /// </summary>
     public const string Window = "ffWindow";
 
-    /// <summary>Takes the window off the TV (and puts it back where it was); the TV goes back to the party.</summary>
-    public const string WindowStop = "ffWindowStop";
+    /// <summary>
+    /// Fixes for the shared window: Arg = <see cref="WindowShow"/>, <see cref="WindowBigger"/> or
+    /// <see cref="WindowMove"/>.
+    /// </summary>
+    public const string WindowAct = "ffWindowAct";
 
-    /// <summary>Arg = "1": pop the shared window off screen at the TV's size; "0": put it back where it was.</summary>
-    public const string WindowPop = "ffWindowPop";
+    /// <summary>Shows a minimised window again, without taking the focus.</summary>
+    public const string WindowShow = "show";
+
+    /// <summary>Makes it fill its monitor (behind the game, if it is on the game's monitor).</summary>
+    public const string WindowBigger = "bigger";
+
+    /// <summary>Moves it to a monitor the game isn't on, filling it.</summary>
+    public const string WindowMove = "move";
+
+    /// <summary>Takes the window off the TV; the TV goes back to the party.</summary>
+    public const string WindowStop = "ffWindowStop";
 
     /// <summary>Playback control; see <see cref="PlaybackCommands"/> for the argument format.</summary>
     public const string Control = "ffControl";

@@ -19,7 +19,7 @@ public sealed class Plugin : IDalamudPlugin
     private const string AliasCommandName = "/viewinff";
     private const string ChatPrefix = "ViewInFFXIV";
     private const string Usage =
-        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | twitch <channel|out|in|stop> | window <title|off|back|stop> | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | mode [game|ui] | remote | apply <code> | stop | bench";
+        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | twitch <channel|out|in|stop> | window <app|show|bigger|move|stop> | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | mode [game|ui] | remote | apply <code> | stop | bench";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -163,7 +163,6 @@ public sealed class Plugin : IDalamudPlugin
         Renderer.Dispose();
         Benchmark.Dispose();
         Host.Dispose();
-        WindowShare.Dispose();
         video?.Dispose();
         CommandManager.RemoveHandler(CommandName);
         CommandManager.RemoveHandler(AliasCommandName);
@@ -343,15 +342,18 @@ public sealed class Plugin : IDalamudPlugin
         switch (rest.ToLowerInvariant())
         {
             case "":
-                ChatGui.Print("Usage: /viewin window <part of its title> | off | back | stop. Your windows:", ChatPrefix);
+                ChatGui.Print("Usage: /viewin window <app or part of its title> | show | bigger | move | stop. Your apps:", ChatPrefix);
                 foreach (var choice in WindowShare.ListWindows())
-                    ChatGui.Print($"  {choice.Title} ({choice.Process})", ChatPrefix);
+                    ChatGui.Print(choice.Title == choice.App ? $"  {choice.App}" : $"  {choice.App}: {choice.Title}", ChatPrefix);
                 break;
-            case "off" or "popoff" or "out":
-                WindowShare.SetPopped(true);
+            case "show":
+                WindowShare.ShowAgain();
                 break;
-            case "back" or "in":
-                WindowShare.SetPopped(false);
+            case "bigger":
+                WindowShare.MakeBigger();
+                break;
+            case "move":
+                WindowShare.MoveToOtherMonitor();
                 break;
             case "stop":
                 if (WindowShare.Active)
@@ -361,7 +363,7 @@ public sealed class Plugin : IDalamudPlugin
                 if (WindowShare.Find(rest) is { } found)
                     WindowShare.Share(found);
                 else
-                    Notify.Error($"No window called \"{rest}\"", "Type part of its title; /viewin window lists your windows in chat.");
+                    Notify.Error($"No app called \"{rest}\"", "Type its name or part of its title; /viewin window lists your apps in chat.");
                 break;
         }
     }
@@ -485,7 +487,7 @@ public sealed class Plugin : IDalamudPlugin
                 Benchmark.Start(Video.Device);
                 break;
             case "stop":
-                var also = Twitch.Active ? " and Twitch" : WindowShare.Active ? " and the shared window" : "";
+                var also = Twitch.Active ? " and Twitch" : WindowShare.Active ? " and the app you shared" : "";
                 HighPerformance.Stop(everything: true);
                 Notify.Info(also.Length > 0 ? $"Stopped the party{also}" : "Left the party");
                 break;
