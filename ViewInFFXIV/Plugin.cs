@@ -270,6 +270,14 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         Benchmark.BeginFrame();
+        if (WallRenderer.Pass.TakeProbeResult() is { } probe)
+        {
+            // Two lines: the report is long and the chat window wraps it badly otherwise.
+            var split = probe.IndexOf(" · LIVE", StringComparison.Ordinal);
+            ChatGui.Print(split > 0 ? probe[..split] : probe, ChatPrefix);
+            if (split > 0)
+                ChatGui.Print(probe[(split + 3)..], ChatPrefix);
+        }
 
         // Pull the newest frame from the helper on the GPU (render thread, game's device context), but only
         // while something shows it: the wall screen in this zone, or the preview in the main window.
@@ -492,6 +500,10 @@ public sealed class Plugin : IDalamudPlugin
                 else
                     WallRenderer.Pass.IgnoreDepth = !WallRenderer.Pass.IgnoreDepth;
                 ChatGui.Print($"Wall screen debug: ignore depth {WallRenderer.Pass.IgnoreDepth} · show scene info {WallRenderer.Pass.ShowInfo} · show depth {WallRenderer.Pass.ShowDepth} · no depth copy {WallRenderer.Pass.NoDepthCopy} · force overlay {ScreenRenderer.ForceOverlay}", ChatPrefix);
+                break;
+            case "rprobe":
+                WallRenderer.Pass.ProbeArmed = true;
+                ChatGui.Print("Probe armed: keep the TV in view and wait a moment for the result.", ChatPrefix);
                 break;
             case "rtrace":
                 RenderTrace.Start();

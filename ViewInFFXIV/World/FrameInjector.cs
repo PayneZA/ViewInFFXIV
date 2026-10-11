@@ -169,6 +169,7 @@ public sealed unsafe class FrameInjector : IDisposable
 
         // GAME ASSUMPTION A7: G-buffer 3 is black on characters (and sky), coloured on scenery.
         sceneInfo = rtm->GBuffers[3].Value;
+        pass.SceneDepth = rtm->DepthStencil;
 
         // GAME ASSUMPTION A5: at the start of ProcessCommands the main render camera still describes the frame
         // being rendered (checked: equal to Control.ViewProjectionMatrix during the frame).

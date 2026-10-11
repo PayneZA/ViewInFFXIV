@@ -211,6 +211,7 @@ public sealed unsafe class ScreenRenderer : IDisposable
         var nearPlane = renderCamera != null ? renderCamera->NearPlane : 0.1f;
         var cameraPos = renderCamera != null ? (Vector3)renderCamera->Origin : Vector3.Zero;
         Matrix4x4 viewProj = control->ViewProjectionMatrix;
+        overlay!.SceneDepth = rtm->DepthStencil;
         overlay!.Draw(frame, device->SwapChain->BackBuffer, rtm->DepthStencil, rtm->GBuffers[3].Value, viewProj, cameraPos, nearPlane, writeDepth: false);
     }
 
