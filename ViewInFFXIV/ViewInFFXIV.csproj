@@ -13,10 +13,13 @@
     <Description>Put a TV on your wall and watch with friends. Start a watch party in one click and everyone sees the same YouTube video, in sync, with the sound coming from the screen. Or put a Twitch channel on the TV, or show any app from your PC. Search, queue and control it all without leaving the game. Needs Windows 10 or 11 and the free Brave browser. Open with /matinee.</Description>
     <Tags>utility;housing;video;watchtogether;twitch;movienight</Tags>
     <RepoUrl>https://github.com/PayneZA/ViewInFFXIV</RepoUrl>
+    <IconUrl>https://raw.githubusercontent.com/PayneZA/ViewInFFXIV/main/ViewInFFXIV/images/icon.png</IconUrl>
     <MakeZip>true</MakeZip>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ViewInFFXIV.Shared\ViewInFFXIV.Shared.csproj" />
+    <!-- Dalamud shows images/icon.png next to the plugin for dev builds; the installer uses IconUrl. -->
+    <None Include="images\icon.png" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\ViewInFFXIV.Host\ViewInFFXIV.Host.csproj">
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <SkipGetTargetFrameworkProperties>true</SkipGetTargetFrameworkProperties>

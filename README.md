@@ -1,3 +1,5 @@
+<img src="ViewInFFXIV/images/icon.png" alt="" width="96" align="right">
+
 # Matinee
 
 Watch together on a TV in your FFXIV house. Start a party in one click, send the invite, and everyone sees the same

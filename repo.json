@@ -8,6 +8,7 @@
     "AssemblyVersion": "5.5.0.0",
     "TestingAssemblyVersion": "5.5.0.0",
     "RepoUrl": "https://github.com/PayneZA/ViewInFFXIV",
+    "IconUrl": "https://raw.githubusercontent.com/PayneZA/ViewInFFXIV/main/ViewInFFXIV/images/icon.png",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
     "Tags": [
