@@ -156,14 +156,11 @@ PSOut ps(VSOut i)
     float3 color = lerp(bezel, content, picture);
     if (debugView > 1.5)
     {
-        // Debug: what the occlusion test reads. Red = the depth texel is not sky; green = distance to the scene there;
-        // blue = distance to the screen. Green and blue match where the scene touches the screen (darker = nearer, in
-        // 40 m steps), green dimmer than blue means the scene is in front of the screen.
+        // Debug: what the occlusion test reads, raw. Red = the depth texel is not sky; green = scene depth * 20;
+        // blue = the screen's own depth * 20. Reverse-Z: bigger is nearer. Green above blue = scene in front.
         int2 texel = clamp(int2(i.pos.xy * depthScale), int2(0, 0), int2(depthMax));
         float scene = sceneDepth.Load(int3(texel, 0));
-        float sceneDistance = scene > 1e-7 ? nearPlane / scene : 1e4;
-        float screenDistance = nearPlane / max(i.pos.z, 1e-7);
-        o.color = float4(scene > 1e-7 ? 1.0 : 0.0, saturate(sceneDistance / 40.0), saturate(screenDistance / 40.0), coverage);
+        o.color = float4(scene > 1e-7 ? 1.0 : 0.0, saturate(scene * 20.0), saturate(i.pos.z * 20.0), coverage);
         return o;
     }
     if (debugView > 0.5)

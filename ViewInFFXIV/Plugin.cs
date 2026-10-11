@@ -485,11 +485,13 @@ public sealed class Plugin : IDalamudPlugin
                     ScreenRenderer.ForceOverlay = !ScreenRenderer.ForceOverlay;
                 else if (rest == "info")
                     WallRenderer.Pass.ShowInfo = !WallRenderer.Pass.ShowInfo;
+                else if (rest == "nocopy")
+                    WallRenderer.Pass.NoDepthCopy = !WallRenderer.Pass.NoDepthCopy;
                 else if (rest == "depth")
                     WallRenderer.Pass.ShowDepth = !WallRenderer.Pass.ShowDepth;
                 else
                     WallRenderer.Pass.IgnoreDepth = !WallRenderer.Pass.IgnoreDepth;
-                ChatGui.Print($"Wall screen debug: ignore depth {WallRenderer.Pass.IgnoreDepth} · show scene info {WallRenderer.Pass.ShowInfo} · show depth {WallRenderer.Pass.ShowDepth} · force overlay {ScreenRenderer.ForceOverlay}", ChatPrefix);
+                ChatGui.Print($"Wall screen debug: ignore depth {WallRenderer.Pass.IgnoreDepth} · show scene info {WallRenderer.Pass.ShowInfo} · show depth {WallRenderer.Pass.ShowDepth} · no depth copy {WallRenderer.Pass.NoDepthCopy} · force overlay {ScreenRenderer.ForceOverlay}", ChatPrefix);
                 break;
             case "rtrace":
                 RenderTrace.Start();

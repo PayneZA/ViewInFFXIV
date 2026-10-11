@@ -210,6 +210,9 @@ public sealed unsafe class WallRenderer : IDisposable
         /// <summary>Debug (/matinee rdebug depth): paint what the occlusion test reads from the scene depth.</summary>
         public static bool ShowDepth;
 
+        /// <summary>Debug (/matinee rdebug nocopy): read the game's live depth, no copy of it (the screen then writes no depth).</summary>
+        public static bool NoDepthCopy;
+
         private readonly WallRenderer owner;
         private readonly DeviceContext context;
         private readonly SharpDX.Direct3D11.Buffer constants;
@@ -277,7 +280,7 @@ public sealed unsafe class WallRenderer : IDisposable
                 return false;
             var sceneDepth = IgnoreDepth ? null : DepthView(depth);
             DepthStencilView? depthOut = null;
-            if (sceneDepth != null && writeDepth && DepthWriteViews() is { } views)
+            if (sceneDepth != null && writeDepth && !NoDepthCopy && DepthWriteViews() is { } views)
             {
                 // The screen reads the scene's depth and writes its own into the same buffer: read from a copy.
                 // About 15 MB at 1440p, a few hundredths of a millisecond on the GPU (measured with rstat).
