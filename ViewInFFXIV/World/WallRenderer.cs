@@ -201,10 +201,10 @@ public sealed unsafe class WallRenderer : IDisposable
         /// <summary>How far a character may be "in front" and still not hide the screen (depth noise).</summary>
         private const float CharacterTolerance = 0.05f;
 
-        /// <summary>Debug (/viewin rdebug): ignore scene depth.</summary>
+        /// <summary>Debug (/matinee rdebug): ignore scene depth.</summary>
         public static bool IgnoreDepth;
 
-        /// <summary>Debug (/viewin rdebug info): paint what the occlusion test sees.</summary>
+        /// <summary>Debug (/matinee rdebug info): paint what the occlusion test sees.</summary>
         public static bool ShowInfo;
 
         private readonly WallRenderer owner;

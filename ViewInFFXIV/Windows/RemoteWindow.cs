@@ -9,7 +9,7 @@ namespace ViewInFFXIV.Windows;
 /// <summary>
 /// The mini remote: the title, seek bar and transport in a small bar you drag wherever it doesn't get in the way.
 /// It is only there during a party or Twitch, and it fades to faint while the mouse is elsewhere. Shown or hidden with the
-/// remote button in the main window, /viewin remote, Settings, or its own X.
+/// remote button in the main window, /matinee remote, Settings, or its own X.
 /// </summary>
 internal sealed class RemoteWindow : Window
 {
@@ -77,10 +77,10 @@ internal sealed class RemoteWindow : Window
         else
             ImGui.TextUnformatted(Ui.Fit(playback.Title, inner - 64));
         ImGui.SameLine(left + inner - 54);
-        if (Ui.RoundIconButton("##window", FontAwesomeIcon.Tv, 24f, tooltip: "Open the ViewInFFXIV window (/viewin)"))
+        if (Ui.RoundIconButton("##window", FontAwesomeIcon.Tv, 24f, tooltip: "Open Matinee (/matinee)"))
             plugin.ToggleMainUi();
         ImGui.SameLine(left + inner - 24);
-        if (Ui.RoundIconButton("##close", FontAwesomeIcon.Times, 24f, tooltip: "Hide the remote\n(show it again from /viewin or /viewin remote)"))
+        if (Ui.RoundIconButton("##close", FontAwesomeIcon.Times, 24f, tooltip: "Hide the remote\n(show it again from /matinee or /matinee remote)"))
         {
             plugin.Configuration.RemoteShown = false;
             plugin.Configuration.Save();

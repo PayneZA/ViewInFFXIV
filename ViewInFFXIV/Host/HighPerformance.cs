@@ -11,7 +11,7 @@ namespace ViewInFFXIV.Host;
 /// </summary>
 public sealed partial class HighPerformance
 {
-    private const string ChatPrefix = "ViewInFFXIV";
+    private const string ChatPrefix = "Matinee";
 
     private readonly Plugin plugin;
     private string lastRoomUrl = "";
@@ -67,7 +67,7 @@ public sealed partial class HighPerformance
         var browser = Browser;
         if (browser == null)
         {
-            Notify.Error("No browser found", "ViewInFFXIV is made for Brave: install it from brave.com.");
+            Notify.Error("No browser found", "Matinee is made for Brave: install it from brave.com.");
             return;
         }
 
@@ -178,7 +178,7 @@ public sealed partial class HighPerformance
         var url = UrlRegex().Match(text).Value;
         if (url.Length == 0)
         {
-            Plugin.ChatGui.Print("Usage: /viewin play <video link>", ChatPrefix);
+            Plugin.ChatGui.Print("Usage: /matinee play <video link>", ChatPrefix);
             return;
         }
 
@@ -221,7 +221,7 @@ public sealed partial class HighPerformance
         {
             if (!double.TryParse(part, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n))
             {
-                Plugin.ChatGui.Print("Usage: /viewin seek 1:23 | 83 | +10 | -10", ChatPrefix);
+                Plugin.ChatGui.Print("Usage: /matinee seek 1:23 | 83 | +10 | -10", ChatPrefix);
                 return;
             }
 
@@ -303,7 +303,7 @@ public sealed partial class HighPerformance
     /// <summary>What was copied and how friends use it (for the chat box).</summary>
     private string InviteCopiedText() =>
         (plugin.Renderer.WillDraw ? "Invite copied: the room link and your screen spot. " : "Invite copied: the room link. ")
-        + "Friends paste it into the Join box in /viewin, or type /viewin join followed by the invite.";
+        + "Friends paste it into the Join box in /matinee, or type /matinee join followed by the invite.";
 
     /// <summary>Your w2g name is always your character name.</summary>
     public string? ResolveName() => Plugin.ObjectTable.LocalPlayer?.Name.TextValue;
@@ -324,22 +324,22 @@ public sealed partial class HighPerformance
             if (!hadRoom && plugin.WindowShare.WasActive)
             {
                 Notify.Error("Sharing stopped unexpectedly");
-                Notify.Chat("Sharing your app on the TV stopped unexpectedly. Pick it again from /viewin.");
+                Notify.Chat("Sharing your app on the TV stopped unexpectedly. Pick it again from /matinee.");
             }
             else if (!hadRoom && plugin.Twitch.WasActive)
             {
                 Notify.Error("Twitch stopped unexpectedly");
-                Notify.Chat("Twitch stopped unexpectedly. Start the channel again from /viewin, or type /viewin twitch followed by its name.");
+                Notify.Chat("Twitch stopped unexpectedly. Start the channel again from /matinee, or type /matinee twitch followed by its name.");
             }
             else if (hadRoom)
             {
                 Notify.Error("The watch party stopped");
-                Notify.Chat("The watch party stopped unexpectedly. Press \"Rejoin your last party\" in /viewin, or type /viewin join, to get back in.");
+                Notify.Chat("The watch party stopped unexpectedly. Press \"Rejoin your last party\" in /matinee, or type /matinee join, to get back in.");
             }
             else
             {
                 Notify.Error("The watch party couldn't start");
-                Notify.Chat("The watch party stopped unexpectedly while it was starting. Start it again from /viewin.");
+                Notify.Chat("The watch party stopped unexpectedly while it was starting. Start it again from /matinee.");
             }
 
             return;

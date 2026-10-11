@@ -59,7 +59,7 @@ public sealed partial class MainWindow : Window, IDisposable
     private DateTime clipboardCheckedUtc;
 
     public MainWindow(Plugin plugin)
-        : base("ViewInFFXIV##ViewInFFXIVMain")
+        : base("Matinee##ViewInFFXIVMain")
     {
         this.plugin = plugin;
         screenTab = new ScreenTab(plugin);
@@ -207,7 +207,7 @@ public sealed partial class MainWindow : Window, IDisposable
         if (Ui.AccentButton(inviteLabel))
             Party.CopyInvite();
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Copies the room link and your screen spot.\nFriends paste it into the Join box (or /viewin join).");
+            ImGui.SetTooltip("Copies the room link and your screen spot.\nFriends paste it into the Join box (or /matinee join).");
 
         DrawRoomPopup(status);
         ImGui.Spacing();
@@ -339,7 +339,7 @@ public sealed partial class MainWindow : Window, IDisposable
             HeroIcon(FontAwesomeIcon.Download, width);
             Title("One thing first: Brave", width);
             ImGui.TextWrapped(
-                "ViewInFFXIV is made for the Brave browser. It runs its own hidden copy with its own profile (your normal " +
+                "Matinee is made for the Brave browser. It runs its own hidden copy with its own profile (your normal " +
                 "browser is never touched), and Brave's built-in ad blocking keeps ads off your wall.");
             Ui.Dim("Google Chrome and Microsoft Edge also work, best effort only: the experience and support aren't guaranteed.");
             if (Ui.AccentButton("Get Brave", new Vector2(width, 40)))
@@ -399,7 +399,7 @@ public sealed partial class MainWindow : Window, IDisposable
             Ui.Dim($"You'll appear as {Party.ResolveName() ?? "your character name"}.");
             if (browser is { BlocksAds: false } other)
             {
-                Ui.Dim($"Using {other.Name} (best effort): ViewInFFXIV is made for Brave.");
+                Ui.Dim($"Using {other.Name} (best effort): Matinee is made for Brave.");
                 ImGui.SameLine();
                 if (ImGui.SmallButton("Get Brave"))
                     Util.OpenLink(Browsers.BraveDownloadUrl);
@@ -873,7 +873,7 @@ public sealed partial class MainWindow : Window, IDisposable
             var remote = config.RemoteShown;
             if (ImGui.Checkbox("Mini remote: a small control bar you can drag anywhere", ref remote))
                 plugin.ToggleRemote();
-            Ui.Dim("Only during a party; it fades while you're not using it. Also the remote button at the top, or /viewin remote.");
+            Ui.Dim("Only during a party; it fades while you're not using it. Also the remote button at the top, or /matinee remote.");
         });
 
         Ui.Card("sound", width =>
@@ -920,7 +920,7 @@ public sealed partial class MainWindow : Window, IDisposable
         Ui.Card("browser", width =>
         {
             ImGui.TextUnformatted("Browser");
-            Ui.Dim("ViewInFFXIV runs its own hidden copy of the browser, with its own profile; the sound plays from it.");
+            Ui.Dim("Matinee runs its own hidden copy of the browser, with its own profile; the sound plays from it.");
 
             var options = new List<(string Id, string Label)> { (Browsers.Auto, $"Automatic ({Party.Browser?.Name ?? "none installed"})") };
             options.AddRange(Browsers.All.Where(b => Browsers.Find(b) != null).Select(b => (b.Id, b.Name + (b == Browsers.Brave ? " — recommended" : " — best effort"))));
@@ -954,7 +954,7 @@ public sealed partial class MainWindow : Window, IDisposable
             if (chosen != null && chosen != Browsers.Brave)
             {
                 ImGui.PushStyleColor(ImGuiCol.Text, Ui.Warn);
-                ImGui.TextWrapped($"ViewInFFXIV is made for Brave. {chosen.Name} works on a best-effort basis: the experience and support aren't guaranteed, and without Brave's ad blocking you will see ads.");
+                ImGui.TextWrapped($"Matinee is made for Brave. {chosen.Name} works on a best-effort basis: the experience and support aren't guaranteed, and without Brave's ad blocking you will see ads.");
                 ImGui.PopStyleColor();
             }
 
@@ -998,7 +998,7 @@ public sealed partial class MainWindow : Window, IDisposable
 
         Ui.Card("about", _ =>
         {
-            Ui.Dim($"ViewInFFXIV {Plugin.PluginInterface.Manifest.AssemblyVersion} · not affiliated with Square Enix, Watch2Gether, YouTube or the browser makers.");
+            Ui.Dim($"Matinee {Plugin.PluginInterface.Manifest.AssemblyVersion} · made with Claude · not affiliated with Square Enix, Watch2Gether, YouTube or the browser makers.");
         });
     }
 

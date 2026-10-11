@@ -401,7 +401,7 @@ internal sealed class ManagedBrowser(Func<bool, string> theaterScript, bool wait
     private static string WriteStartPage(string profileDir)
     {
         var path = Path.Combine(profileDir, "viewinffxiv-start.html");
-        File.WriteAllText(path, "<!doctype html><title>ViewInFFXIV</title><body style=\"background:#000\"></body>", new UTF8Encoding(false));
+        File.WriteAllText(path, "<!doctype html><title>Matinee</title><body style=\"background:#000\"></body>", new UTF8Encoding(false));
         return path;
     }
 

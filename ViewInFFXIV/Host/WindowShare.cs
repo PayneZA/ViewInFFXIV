@@ -129,7 +129,7 @@ public sealed class WindowShare
         return found;
     }
 
-    /// <summary>First window whose title (or app) contains the text, for /viewin window.</summary>
+    /// <summary>First window whose title (or app) contains the text, for /matinee window.</summary>
     public WindowChoice? Find(string text)
     {
         var windows = ListWindows();
@@ -207,7 +207,7 @@ public sealed class WindowShare
         if (Stuck && !pausedReported && !plugin.MainWindowOpen)
         {
             pausedReported = true;
-            Notify.Warning("The app on the TV is paused", "Open /viewin to get it moving again.");
+            Notify.Warning("The app on the TV is paused", "Open /matinee to get it moving again.");
         }
 
         var error = plugin.Host.HelperAlive ? status.Error : null;

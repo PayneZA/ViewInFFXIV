@@ -45,7 +45,7 @@ public static class ScreenShareCode
         house = 0;
         if (!TryExtractBytes(raw, out var bytes))
         {
-            error = "Not a ViewInFFXIV share code.";
+            error = "Not a Matinee screen spot code.";
             return false;
         }
 

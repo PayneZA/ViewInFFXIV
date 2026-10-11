@@ -64,7 +64,7 @@ internal sealed class HostForm : Form
             _ = twitch.RefreshAsync(stream.IsRunning ? stream.OpenPage : null);
         }, null, 1000, 1000);
 
-        Text = "ViewInFFXIV Host";
+        Text = "Matinee Host";
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
         StartPosition = FormStartPosition.Manual;
         ClientSize = new Size(1, 1);

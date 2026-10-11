@@ -1,13 +1,20 @@
-# ViewInFFXIV
+# Matinee
 
-Watch YouTube together on a TV in your FFXIV house. Start a party in one click, send the invite, and everyone sees
-the same video, in sync, on a screen on their wall — with the sound coming from the screen. No server of ours:
-the room is a [Watch2Gether](https://w2g.tv/) room, and each player's plugin shows it on their own wall.
+Watch together on a TV in your FFXIV house. Start a party in one click, send the invite, and everyone sees the same
+YouTube video, in sync, on a screen on their wall — with the sound coming from the screen. Or put a Twitch channel on
+the TV, or show any app from your PC. No server of ours: the room is a [Watch2Gether](https://w2g.tv/) room, and each
+player's plugin shows it on their own wall.
+
+Open it with `/matinee`, or just `/tv`. *Matinee was called ViewInFFXIV until October 2026; `/viewin` still works,
+and updating keeps all your settings.*
+
+Matinee is developed hand in hand with [Claude](https://claude.ai) (Opus 5.5), Anthropic's AI, who co-authors the
+commits: designed, written and tested in the game together, one feature at a time.
 
 ## Requirements
 
 - **Windows 10 (2004+) or Windows 11** — the video is captured with Windows.Graphics.Capture on the GPU.
-- **[Brave](https://brave.com/)** — ViewInFFXIV is made for Brave. The plugin runs its own hidden copy with a separate
+- **[Brave](https://brave.com/)** — Matinee is made for Brave. The plugin runs its own hidden copy with a separate
   profile, so your normal browser is untouched, and Brave's built-in ad blocking keeps ads off your wall.
   *Google Chrome and Microsoft Edge work on a best-effort basis only: the experience is not guaranteed and they are not
   supported* (you will also see ads). **Automatic** (Settings → Browser) picks Brave, else Chrome, else Edge. Firefox
@@ -18,9 +25,9 @@ Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), 
 
 ## Watching together
 
-1. `/viewin` → **Start a watch party**. The screen goes up in front of you (if this house has none yet), the room is
+1. `/matinee` → **Start a watch party**. The screen goes up in front of you (if this house has none yet), the room is
    created and the invite is copied.
-2. Paste the invite to your friends. They paste it into the **Join** box (or `/viewin join <invite>`). The invite
+2. Paste the invite to your friends. They paste it into the **Join** box (or `/matinee join <invite>`). The invite
    also carries where your screen is, so their TV appears in the same spot when they are in your house.
 3. Search YouTube or paste a link in the window. Play, pause and seek are for everyone; volume and subtitles are
    just for you.
@@ -59,21 +66,21 @@ Everything is in the window; these are for macros and chat.
 
 | Command | |
 |---|---|
-| `/viewin` | Open the window |
-| `/viewin party` | Start a watch party (same as the big button) |
-| `/viewin join <invite>` | Join a party (no invite: your last one) |
-| `/viewin search <words>` / `play <link>` | Search YouTube in the window / play a link for everyone |
-| `/viewin pause` / `resume` / `seek 1:23` / `seek +10` / `next` | Playback for everyone |
-| `/viewin cc [on\|off]` / `vol 0-100` | Subtitles and volume — just for you |
-| `/viewin invite` / `show` / `hide` | Copy the invite / show or hide the browser (w2g's own playlist and chat) |
-| `/viewin place` / `screen` / `apply <code>` | Put the screen in front of you / open the Screen tab / use a spot code |
-| `/viewin mode [game\|ui]` | Put the TV in game or on your UI (no argument: switch) |
-| `/viewin remote` | Show or hide the mini remote |
-| `/viewin twitch <channel>` / `twitch out\|in\|stop` | Put a Twitch channel on the TV / pop its page out or in / stop it |
-| `/viewin window <app>` / `window show\|bigger\|move\|stop` | Share an app on the TV (no name lists them) / show it again, make it bigger, move it to your other monitor / stop |
-| `/viewin browser auto\|brave\|chrome\|edge` | Pick the browser (switches a running party over) |
-| `/viewin stop` | Leave the party, stop Twitch or sharing, and close the browsers |
-| `/viewin bench` | 25-second performance check, results in chat |
+| `/matinee` or `/tv` | Open the window (every command below works with `/tv` too) |
+| `/matinee party` | Start a watch party (same as the big button) |
+| `/matinee join <invite>` | Join a party (no invite: your last one) |
+| `/matinee search <words>` / `play <link>` | Search YouTube in the window / play a link for everyone |
+| `/matinee pause` / `resume` / `seek 1:23` / `seek +10` / `next` | Playback for everyone |
+| `/matinee cc [on\|off]` / `vol 0-100` | Subtitles and volume — just for you |
+| `/matinee invite` / `show` / `hide` | Copy the invite / show or hide the browser (w2g's own playlist and chat) |
+| `/matinee place` / `screen` / `apply <code>` | Put the screen in front of you / open the Screen tab / use a spot code |
+| `/matinee mode [game\|ui]` | Put the TV in game or on your UI (no argument: switch) |
+| `/matinee remote` | Show or hide the mini remote |
+| `/matinee twitch <channel>` / `twitch out\|in\|stop` | Put a Twitch channel on the TV / pop its page out or in / stop it |
+| `/matinee window <app>` / `window show\|bigger\|move\|stop` | Share an app on the TV (no name lists them) / show it again, make it bigger, move it to your other monitor / stop |
+| `/matinee browser auto\|brave\|chrome\|edge` | Pick the browser (switches a running party over) |
+| `/matinee stop` | Leave the party, stop Twitch or sharing, and close the browsers |
+| `/matinee bench` | 25-second performance check, results in chat |
 
 Your name in the room is always your character name.
 
@@ -93,7 +100,7 @@ FFXIV (plugin) ──named pipe──▶ ViewInFFXIV.Host.exe ──DevTools─�
   texture and draws it on the wall itself, inside the game's own frame: after the game's post-processing and before
   its UI, so name plates, chat bubbles and the HUD sit on top with no lag, and walls, furniture and people in front
   hide it. No pixels go through the CPU. A 60 fps video costs the game well under a millisecond per frame
-  (`/viewin bench`). How it works and how to fix it after a game patch: [docs/renderer.md](docs/renderer.md).
+  (`/matinee bench`). How it works and how to fix it after a game patch: [docs/renderer.md](docs/renderer.md).
 
 ## Solution layout
 
@@ -113,14 +120,14 @@ when it is installed; the compiled `.cso` files are committed for builds without
 dotnet build ViewInFFXIV\ViewInFFXIV.csproj -c Debug -p:Platform=x64
 ```
 
-The plugin build also builds the helper and copies it into `bin\x64\Debug\Host\` (run `/viewin stop` first: a
+The plugin build also builds the helper and copies it into `bin\x64\Debug\Host\` (run `/matinee stop` first: a
 running helper locks its files). A new plugin closes a helper from another build on its own. A **Release** build
 creates `dist/release.zip` (dev-plugin folder). Set `VIEWINFFXIV_INSTANCE=<name>` to run a second, separate helper.
 
 ## Install from the plugin repo
 
 `/xlsettings` → **Experimental** → **Custom Plugin Repositories** → add
-`https://raw.githubusercontent.com/PayneZA/ViewInFFXIV/main/repo.json` → `/xlplugins` → install **ViewInFFXIV**.
+`https://raw.githubusercontent.com/PayneZA/ViewInFFXIV/main/repo.json` → `/xlplugins` → install **Matinee**.
 
 ## Credits
 
@@ -132,4 +139,4 @@ creates `dist/release.zip` (dev-plugin folder). Set `VIEWINFFXIV_INSTANCE=<name>
 | [Watch2Gether](https://w2g.tv/) | Watch-party rooms | Their terms |
 | [Brave](https://brave.com/), Chrome, Edge | Browser | Their terms |
 
-ViewInFFXIV is not affiliated with Square Enix, Watch2Gether, YouTube, Brave, Google, Microsoft or the Dalamud team.
+Matinee is not affiliated with Square Enix, Watch2Gether, YouTube, Brave, Google, Microsoft or the Dalamud team.

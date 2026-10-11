@@ -1,9 +1,9 @@
 [
   {
-    "Author": "ViewInFFXIV",
-    "Name": "ViewInFFXIV",
-    "Punchline": "Watch YouTube together on a TV in your house, in sync.",
-    "Description": "Start a watch party in one click and everyone sees the same video, in sync, on a screen on their wall. Search YouTube in game, queue videos, control playback right on the TV, and hear the sound come from the screen. Invites put your friends' TV in the same spot. Requires Windows 10/11 and the Brave browser (brave.com). Open with /viewin.",
+    "Author": "PayneZA",
+    "Name": "Matinee",
+    "Punchline": "Watch together on a TV in your house: YouTube, Twitch, or any app.",
+    "Description": "Put a TV on your wall and watch with friends. Start a watch party in one click and everyone sees the same YouTube video, in sync, with the sound coming from the screen. Or put a Twitch channel on the TV, or show any app from your PC. Search, queue and control it all without leaving the game. Needs Windows 10 or 11 and the free Brave browser. Open with /matinee.",
     "InternalName": "ViewInFFXIV",
     "AssemblyVersion": "3.3.1.0",
     "TestingAssemblyVersion": "3.3.1.0",
@@ -14,7 +14,9 @@
       "utility",
       "housing",
       "video",
-      "watchtogether"
+      "watchtogether",
+      "twitch",
+      "movienight"
     ],
     "IsHide": false,
     "IsTestingExclusive": false,

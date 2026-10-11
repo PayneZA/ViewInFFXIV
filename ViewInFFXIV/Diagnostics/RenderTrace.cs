@@ -11,7 +11,7 @@ using RenderCamera = FFXIVClientStructs.FFXIV.Client.Graphics.Render.Camera;
 namespace ViewInFFXIV.Diagnostics;
 
 /// <summary>
-/// /viewin rtrace: records how the game switches render targets for a few frames (which texture, which thread,
+/// /matinee rtrace: records how the game switches render targets for a few frames (which texture, which thread,
 /// which camera), writes a report next to the config and unhooks. Used to find where the wall screen can be drawn
 /// inside the game's frame, after the 3D scene and before the UI.
 /// </summary>
@@ -84,7 +84,7 @@ public sealed unsafe class RenderTrace : IDisposable
         catch (Exception ex)
         {
             Plugin.Log.Warning(ex, "Render trace: could not hook the game's render commands");
-            Plugin.ChatGui.PrintError($"Render trace unavailable: {ex.Message}", "ViewInFFXIV");
+            Plugin.ChatGui.PrintError($"Render trace unavailable: {ex.Message}", "Matinee");
             DisposeHooks();
             return;
         }
@@ -103,7 +103,7 @@ public sealed unsafe class RenderTrace : IDisposable
         drawHook!.Enable();
         drawIndexedInstancedHook!.Enable();
         drawInstancedHook!.Enable();
-        Plugin.ChatGui.Print("Render trace: capturing 3 frames…", "ViewInFFXIV");
+        Plugin.ChatGui.Print("Render trace: capturing 3 frames…", "Matinee");
     }
 
     /// <summary>Call from UiBuilder.Draw (inside the game's Present). Only a marker: Draw does not run while the UI is hidden.</summary>
@@ -339,7 +339,7 @@ public sealed unsafe class RenderTrace : IDisposable
         var device = Device.Instance();
         var rtm = RenderTargetManager.Instance();
         var uiHidden = Plugin.GameGui.GameUiHidden || Plugin.ClientState.IsGPosing;
-        sb.AppendLine($"ViewInFFXIV render trace {DateTime.Now:yyyy-MM-dd HH:mm:ss}, {count} events, {FramesToCapture} frames, UI hidden {uiHidden}, GPose {Plugin.ClientState.IsGPosing}");
+        sb.AppendLine($"Matinee render trace {DateTime.Now:yyyy-MM-dd HH:mm:ss}, {count} events, {FramesToCapture} frames, UI hidden {uiHidden}, GPose {Plugin.ClientState.IsGPosing}");
         if (device != null)
             sb.AppendLine($"Device {device->Width}x{device->Height} gamma {device->GammaCorrection} colorFilter {device->ColorFilter}/{device->ColorFilterRange}");
         if (rtm != null)
@@ -394,7 +394,7 @@ public sealed unsafe class RenderTrace : IDisposable
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, sb.ToString());
-            Plugin.ChatGui.Print($"Render trace: {count} events, {threads.Count} thread(s), {mismatches} outside changes → {path}", "ViewInFFXIV");
+            Plugin.ChatGui.Print($"Render trace: {count} events, {threads.Count} thread(s), {mismatches} outside changes → {path}", "Matinee");
         }
         catch (Exception ex)
         {

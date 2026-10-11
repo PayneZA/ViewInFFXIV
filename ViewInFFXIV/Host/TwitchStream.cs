@@ -56,7 +56,7 @@ public sealed class TwitchStream
         var browser = Browsers.Resolve(plugin.Configuration.Browser);
         if (browser == null)
         {
-            Notify.Error("No browser found", "ViewInFFXIV is made for Brave: install it from brave.com.");
+            Notify.Error("No browser found", "Matinee is made for Brave: install it from brave.com.");
             return false;
         }
 

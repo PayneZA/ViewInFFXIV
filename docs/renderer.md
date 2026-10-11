@@ -32,8 +32,8 @@ patch breaks it. Read this before changing anything under `ViewInFFXIV/World/`.
 | `World/FrameInjector.cs` | **In-world tier.** The two hooks, the per-frame snapshot, the injection rule, the miss counter. Most patch fixes happen here. |
 | `World/WallRenderer.cs` | The D3D11 side: shaders, states, and `Pass` (deferred context, constants, views onto game textures, depth copy and depth write, GPU timer). `WallFrame` is defined here too. |
 | `World/Shaders/Wall.hlsl` | Vertex and pixel shader. Compiled to `Wall.vs.cso` / `Wall.ps.cso`; **both `.cso` files are committed**. |
-| `Diagnostics/RenderTrace.cs` | `/viewin rtrace`: records a few frames of the game's render-target switches. The tool for patch day. |
-| `Diagnostics/GpuStopwatch.cs` | GPU timing on the render thread (shown by `/viewin rstat`). |
+| `Diagnostics/RenderTrace.cs` | `/matinee rtrace`: records a few frames of the game's render-target switches. The tool for patch day. |
+| `Diagnostics/GpuStopwatch.cs` | GPU timing on the render thread (shown by `/matinee rstat`). |
 | `Media/Playability.cs` | Not rendering: checks a YouTube video can play in w2g before it is sent (see P1). |
 
 Settings that affect the renderer (`Configuration.cs`, shown under Settings → Screen):
@@ -89,7 +89,7 @@ all the places. Verified on 2026-10-10, game 7.x, 2560×1440, gamma 0.86, DX11.
   every render-target switch. The `RenderCommandSetTarget` layout (`RenderTargets[0..4]`, `DepthBuffer`) is right.
 - **If broken:**
   - The hook creation throws: the log says "cannot hook the game's frame" and the screen draws over the UI.
-  - Or the hooks never fire: `/viewin rstat` shows `rendered` not increasing.
+  - Or the hooks never fire: `/matinee rstat` shows `rendered` not increasing.
   - Or SetTarget is now inlined for some commands: the trace shows `[TARGET CHANGED OUTSIDE SetTarget]` near the end
     of the frame.
 - **Fix:** update Dalamud (ClientStructs ships with it). If ClientStructs itself is behind, wait for it, or check
@@ -103,9 +103,9 @@ all the places. Verified on 2026-10-10, game 7.x, 2560×1440, gamma 0.86, DX11.
   4. a copy to the swap chain.
 
   We draw at the first bind of type 2.
-- **If broken:** `/viewin rstat` shows `missed` climbing, and after 3 misses in a row the screen draws over the UI.
+- **If broken:** `/matinee rstat` shows `missed` climbing, and after 3 misses in a row the screen draws over the UI.
   Or the screen draws but post-processing covers it (it looks hazy or bloomed), or the UI ends up under it.
-- **Check:** `/viewin rtrace`, then read the end of a frame (section 6). Find where the frame switches from 1-draw
+- **Check:** `/matinee rtrace`, then read the end of a frame (section 6). Find where the frame switches from 1-draw
   post-processing blocks to UI blocks, and adjust the rule. Keep the rule tied to *which texture and which depth*,
   never to counting binds: a count differs between settings and machines and would need per-user tuning.
 
@@ -143,14 +143,14 @@ all the places. Verified on 2026-10-10, game 7.x, 2560×1440, gamma 0.86, DX11.
   - Its size can differ from the target's (upscaling), so the shader uses `ActualWidth/Height` scale factors.
 - **If broken:**
   - Wrong format: the log says "scene depth … cannot be read" and the screen shows through everything.
-  - Wrong depth model: the screen hides behind everything, or behind nothing. `/viewin rdebug` (ignore depth) shows
+  - Wrong depth model: the screen hides behind everything, or behind nothing. `/matinee rdebug` (ignore depth) shows
     whether the screen itself still draws.
 - **Untested so far:** DLSS/FSR and dynamic resolution. Watch the screen's edges for shimmer while the camera moves.
 
 ### A7. Telling people from scenery (`Wall.hlsl toleranceAt`, `FrameInjector.BeginFrame`)
 - **Assumes:** `RenderTargetManager.GBuffers[3]` is black (all channels < 0.05) on characters and sky, and coloured
   on scenery. Characters get a strict 5 cm; scenery gets the *Covers furniture* distance.
-- **Check:** `/viewin rdebug info` paints the screen red where it sees a character and green where it sees scenery.
+- **Check:** `/matinee rdebug info` paints the screen red where it sees a character and green where it sees scenery.
 - **If broken:** people stop hiding the screen (they read as scenery), or walls cut holes in it (they read as
   characters).
 
@@ -171,7 +171,7 @@ all the places. Verified on 2026-10-10, game 7.x, 2560×1440, gamma 0.86, DX11.
   - `RenderTargetManager.DepthStencil` still holds that frame's depth.
   - `Control.ViewProjectionMatrix` is the camera it was drawn with.
   - The loading fades are the addons `FadeMiddle` and `FadeBlack`.
-- **Check:** `/viewin rdebug overlay` forces this tier.
+- **Check:** `/matinee rdebug overlay` forces this tier.
 
 ### P1. YouTube embedding check (`Media/Playability.cs`)
 - **Assumes:** `https://www.youtube.com/oembed?format=json&url=…` answers 200 when a video can be embedded, 401/403
@@ -188,14 +188,14 @@ After a game or Dalamud update, with a screen placed in your house:
 
 1. **Does it load?** `plugin_log` / dalamud.log, filtered by `ViewInFFXIV`. Look for "renderer unavailable",
    "cannot hook", "in-world drawing failed".
-2. **Which tier is running?** Run `/viewin rstat`. Healthy:
+2. **Which tier is running?** Run `/matinee rstat`. Healthy:
    `tier InWorld … rendered N · drawn N · stale 0 · missed 0 · failed 0 · faulted False`, with `drawn` keeping up
    with `rendered`.
-3. **If it is on the overlay, or `missed` is climbing:** run `/viewin rtrace` and check A2/A3 against the report.
+3. **If it is on the overlay, or `missed` is climbing:** run `/matinee rtrace` and check A2/A3 against the report.
    Also compare A1's `ProcessCommands begin/end` pairs (one per frame).
 4. **If it draws but looks wrong:**
-   - screen hidden: `/viewin rdebug` (ignore depth); still hidden means A2/A5, shows means A6/A7;
-   - people or walls misjudged: `/viewin rdebug info` (A7);
+   - screen hidden: `/matinee rdebug` (ignore depth); still hidden means A2/A5, shows means A6/A7;
+   - people or walls misjudged: `/matinee rdebug info` (A7);
    - swims during camera moves: A5;
    - names or markers on top: A8.
 5. **Check GPU cost:** `rstat` shows `GPU x ms/frame`. It was 0.071 ms at 1440p, including the depth copy.
@@ -212,7 +212,7 @@ Two things that cost an hour each the first time:
 
 ## 6. Reading a render trace
 
-`/viewin rtrace` writes `%AppData%\XIVLauncher\pluginConfigs\ViewInFFXIV\rtrace-<time>.txt`. Each `SetTarget` line
+`/matinee rtrace` writes `%AppData%\XIVLauncher\pluginConfigs\ViewInFFXIV\rtrace-<time>.txt`. Each `SetTarget` line
 shows:
 - **`draws`**: how many D3D draws ran on that target before the next switch;
 - **`RT0..2` and `DS`**: the textures, named after their `RenderTargetManager` field (sizes and formats included);
@@ -250,11 +250,11 @@ None of these change saved settings; everything resets when the plugin reloads.
 
 | Command | What it does |
 |---|---|
-| `/viewin rstat` | Tier, GPU time, and the counters: `rendered` (frames the game rendered), `drawn` (frames with the screen), `stale` (frames whose published state was too old: UI hidden), `missed` (wanted to draw, spot not found), `failed` (our draw returned an error), `faulted` (an exception stopped in-world drawing until reload), framework/render overlap (A4), last miss |
-| `/viewin rtrace` | Render trace of 3 frames (section 6) |
-| `/viewin rdebug` | Toggle: ignore scene depth (is it the depth test or the draw?) |
-| `/viewin rdebug info` | Toggle: paint what the depth test thinks is behind the screen (A7) |
-| `/viewin rdebug overlay` | Toggle: force the overlay tier (A10) |
+| `/matinee rstat` | Tier, GPU time, and the counters: `rendered` (frames the game rendered), `drawn` (frames with the screen), `stale` (frames whose published state was too old: UI hidden), `missed` (wanted to draw, spot not found), `failed` (our draw returned an error), `faulted` (an exception stopped in-world drawing until reload), framework/render overlap (A4), last miss |
+| `/matinee rtrace` | Render trace of 3 frames (section 6) |
+| `/matinee rdebug` | Toggle: ignore scene depth (is it the depth test or the draw?) |
+| `/matinee rdebug info` | Toggle: paint what the depth test thinks is behind the screen (A7) |
+| `/matinee rdebug overlay` | Toggle: force the overlay tier (A10) |
 
 ---
 
@@ -293,7 +293,7 @@ tool (do-nothing handler, 1–4 pool buffers) on the hidden browser window:
 | 60 Hz | 42–48 /s | 16.7 ms or 33.5 ms (a skipped tick ~1 in 4) |
 
 - **The browser is not the limit:** it decodes and presents the full 60 fps (0 dropped) at both refresh rates.
-- **This plugin is not the limit:** the helper passes on every captured frame (`/viewin bench`: dropped 0/s).
+- **This plugin is not the limit:** the helper passes on every captured frame (`/matinee bench`: dropped 0/s).
 - **What doesn't change it:** the window's position or nearest monitor, GPU load (game focused or in the
   background), pool size, or content that changes on every refresh.
 

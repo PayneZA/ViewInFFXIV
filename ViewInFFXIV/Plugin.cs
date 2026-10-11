@@ -15,11 +15,14 @@ namespace ViewInFFXIV;
 
 public sealed class Plugin : IDalamudPlugin
 {
-    private const string CommandName = "/viewin";
-    private const string AliasCommandName = "/viewinff";
-    private const string ChatPrefix = "ViewInFFXIV";
+    private const string CommandName = "/matinee";
+    // Short and easy to remember; another plugin may own it already, then /matinee still works.
+    private const string ShortCommandName = "/tv";
+    // The old name's commands keep working.
+    private static readonly string[] OldCommandNames = ["/viewin", "/viewinff"];
+    private const string ChatPrefix = "Matinee";
     private const string Usage =
-        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | twitch <channel|out|in|stop> | window <app|show|bigger|move|stop> | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | mode [game|ui] | remote | apply <code> | stop | bench";
+        "/matinee create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | twitch <channel|out|in|stop> | window <app|show|bigger|move|stop> | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | mode [game|ui] | remote | apply <code> | stop | bench";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -80,6 +83,7 @@ public sealed class Plugin : IDalamudPlugin
     private SharedVideo? video;
     private uint lastTerritoryType;
     private ulong lastHouse;
+    private bool shortCommand;
 
     public Plugin()
     {
@@ -115,8 +119,10 @@ public sealed class Plugin : IDalamudPlugin
         UiScreen = new UiScreenWindow(this);
         screenWindows.AddWindow(UiScreen);
 
-        CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand) { HelpMessage = $"Open ViewInFFXIV. {Usage}" });
-        CommandManager.AddHandler(AliasCommandName, new CommandInfo(OnCommand) { HelpMessage = "Same as /viewin.", ShowInHelp = false });
+        CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand) { HelpMessage = $"Open Matinee. {Usage}" });
+        shortCommand = CommandManager.AddHandler(ShortCommandName, new CommandInfo(OnCommand) { HelpMessage = "Same as /matinee." });
+        foreach (var old in OldCommandNames)
+            CommandManager.AddHandler(old, new CommandInfo(OnCommand) { HelpMessage = "Same as /matinee.", ShowInHelp = false });
 
         PluginInterface.UiBuilder.Draw += Draw;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleMainUi;
@@ -124,7 +130,7 @@ public sealed class Plugin : IDalamudPlugin
         Framework.Update += OnFramework;
 
         ApplyUiHidePolicy();
-        Log.Information("ViewInFFXIV loaded. Use {Command} to open it.", CommandName);
+        Log.Information("Matinee loaded. Use {Command} to open it.", CommandName);
     }
 
     /// <summary>The video to show on the wall, the UI picture and the preview: null (blank) until there is one.</summary>
@@ -165,7 +171,10 @@ public sealed class Plugin : IDalamudPlugin
         Host.Dispose();
         video?.Dispose();
         CommandManager.RemoveHandler(CommandName);
-        CommandManager.RemoveHandler(AliasCommandName);
+        if (shortCommand)
+            CommandManager.RemoveHandler(ShortCommandName);
+        foreach (var old in OldCommandNames)
+            CommandManager.RemoveHandler(old);
     }
 
     public void ToggleMainUi() => mainWindow.Toggle();
@@ -292,7 +301,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         if (id != Browsers.Auto && Browsers.ById(id) is null)
         {
-            ChatGui.Print($"Usage: /viewin browser auto | {string.Join(" | ", Browsers.All.Select(b => b.Id))}", ChatPrefix);
+            ChatGui.Print($"Usage: /matinee browser auto | {string.Join(" | ", Browsers.All.Select(b => b.Id))}", ChatPrefix);
             return;
         }
 
@@ -315,11 +324,11 @@ public sealed class Plugin : IDalamudPlugin
         {
             case "":
                 if (Twitch.Active)
-                    ChatGui.Print("Usage: /viewin twitch <channel or twitch.tv link> | out | in | stop", ChatPrefix);
+                    ChatGui.Print("Usage: /matinee twitch <channel or twitch.tv link> | out | in | stop", ChatPrefix);
                 else if (Configuration.TwitchRecent.Count > 0)
                     Twitch.Watch(Configuration.TwitchRecent[0]);
                 else
-                    ChatGui.Print("Usage: /viewin twitch <channel or twitch.tv link>", ChatPrefix);
+                    ChatGui.Print("Usage: /matinee twitch <channel or twitch.tv link>", ChatPrefix);
                 break;
             case "out" or "popout":
                 Twitch.PopOut();
@@ -342,7 +351,7 @@ public sealed class Plugin : IDalamudPlugin
         switch (rest.ToLowerInvariant())
         {
             case "":
-                ChatGui.Print("Usage: /viewin window <app or part of its title> | show | bigger | move | stop. Your apps:", ChatPrefix);
+                ChatGui.Print("Usage: /matinee window <app or part of its title> | show | bigger | move | stop. Your apps:", ChatPrefix);
                 foreach (var choice in WindowShare.ListWindows())
                     ChatGui.Print(choice.Title == choice.App ? $"  {choice.App}" : $"  {choice.App}: {choice.Title}", ChatPrefix);
                 break;
@@ -363,7 +372,7 @@ public sealed class Plugin : IDalamudPlugin
                 if (WindowShare.Find(rest) is { } found)
                     WindowShare.Share(found);
                 else
-                    Notify.Error($"No app called \"{rest}\"", "Type its name or part of its title; /viewin window lists your apps in chat.");
+                    Notify.Error($"No app called \"{rest}\"", "Type its name or part of its title; /matinee window lists your apps in chat.");
                 break;
         }
     }
@@ -407,7 +416,7 @@ public sealed class Plugin : IDalamudPlugin
                 if (int.TryParse(rest, out var volume))
                     HighPerformance.Volume(volume);
                 else
-                    ChatGui.Print("Usage: /viewin vol 0-100", ChatPrefix);
+                    ChatGui.Print("Usage: /matinee vol 0-100", ChatPrefix);
                 break;
             case "invite":
                 HighPerformance.CopyInvite();
@@ -454,7 +463,7 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "search" or "yt":
                 if (rest.Length == 0)
-                    ChatGui.Print("Usage: /viewin search <words>", ChatPrefix);
+                    ChatGui.Print("Usage: /matinee search <words>", ChatPrefix);
                 else
                     mainWindow.Search(rest);
                 break;
@@ -464,7 +473,7 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "apply":
                 if (rest.Length == 0)
-                    ChatGui.Print("Usage: /viewin apply VIF1.…", ChatPrefix);
+                    ChatGui.Print("Usage: /matinee apply VIF1.…", ChatPrefix);
                 else
                     ApplyShareCode(rest);
                 break;

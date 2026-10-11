@@ -5,7 +5,7 @@ using SharpDX.Direct3D11;
 namespace ViewInFFXIV.Diagnostics;
 
 /// <summary>
-/// /viewin bench: runs the game for a few seconds in each mode (everything on, no video copy, no screen draw,
+/// /matinee bench: runs the game for a few seconds in each mode (everything on, no video copy, no screen draw,
 /// neither) and prints the game's frame times plus the CPU and GPU cost of our own per-frame work.
 /// Driven from the Draw callback; costs nothing while not running.
 /// </summary>
@@ -53,7 +53,7 @@ public sealed class Benchmark : IDisposable
         BeginMode();
         Plugin.ChatGui.Print(
             $"Benchmark: {Modes.Length} modes × {ModeSeconds:0} s. Keep the game focused and the screen in view.",
-            "ViewInFFXIV");
+            "Matinee");
     }
 
     /// <summary>Start of our per-frame work (top of Draw).</summary>
@@ -83,7 +83,7 @@ public sealed class Benchmark : IDisposable
             if (++modeIndex >= Modes.Length)
             {
                 modeIndex = -1;
-                Plugin.ChatGui.Print("Benchmark done.", "ViewInFFXIV");
+                Plugin.ChatGui.Print("Benchmark done.", "Matinee");
                 return;
             }
 
@@ -171,7 +171,7 @@ public sealed class Benchmark : IDisposable
             $"CPU video {sample.CpuVideo / cpuFrames:0.00} draw {sample.CpuRender / cpuFrames:0.00} ms · " +
             $"GPU video {sample.GpuVideo / gpuFrames:0.00} draw {sample.GpuRender / gpuFrames:0.00} ms ({sample.GpuFrames} frames)" +
             (unfocused > 0 ? $" · UNFOCUSED {unfocused:0}%" : ""),
-            "ViewInFFXIV");
+            "Matinee");
     }
 
     private static bool GameFocused()

@@ -12,7 +12,7 @@ namespace ViewInFFXIV.World;
 /// Where: the game ends each frame by binding its final image (the tone-adjust source when gamma or a colour filter
 /// is set, otherwise the swap chain's back buffer) first for post-processing, then together with a depth buffer for
 /// the name plates, then for the 2D UI. We draw right before that first depth-bound bind, testing against the same
-/// depth buffer. Found with <c>/viewin rtrace</c>.
+/// depth buffer. Found with <c>/matinee rtrace</c>.
 /// </para>
 /// <para>
 /// This is the part most likely to break on a game patch. Every line that depends on how the game renders is
@@ -61,7 +61,7 @@ public sealed unsafe class FrameInjector : IDisposable
     /// <summary>Total frames drawn in-world.</summary>
     public long Drawn { get; private set; }
 
-    // Diagnostics for /viewin rstat.
+    // Diagnostics for /matinee rstat.
     public long Stale { get; private set; }
 
     public long Missed { get; private set; }

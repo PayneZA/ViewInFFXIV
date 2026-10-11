@@ -4,14 +4,14 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Author>ViewInFFXIV</Author>
+    <Author>PayneZA</Author>
     <AssemblyName>ViewInFFXIV</AssemblyName>
-    <Name>ViewInFFXIV</Name>
+    <Name>Matinee</Name>
     <InternalName>ViewInFFXIV</InternalName>
     <DalamudApiLevel>15</DalamudApiLevel>
-    <Punchline>Watch YouTube together on a TV in your house, in sync.</Punchline>
-    <Description>Start a watch party in one click and everyone sees the same video, in sync, on a screen on their wall. Search YouTube in game, queue videos, control playback right on the TV, and hear the sound come from the screen. Invites put your friends' TV in the same spot. Requires Windows 10/11 and the Brave browser (brave.com). Open with /viewin.</Description>
-    <Tags>utility;housing;video;watchtogether</Tags>
+    <Punchline>Watch together on a TV in your house: YouTube, Twitch, or any app.</Punchline>
+    <Description>Put a TV on your wall and watch with friends. Start a watch party in one click and everyone sees the same YouTube video, in sync, with the sound coming from the screen. Or put a Twitch channel on the TV, or show any app from your PC. Search, queue and control it all without leaving the game. Needs Windows 10 or 11 and the free Brave browser. Open with /matinee.</Description>
+    <Tags>utility;housing;video;watchtogether;twitch;movienight</Tags>
     <RepoUrl>https://github.com/PayneZA/ViewInFFXIV</RepoUrl>
     <MakeZip>true</MakeZip>
   </PropertyGroup>

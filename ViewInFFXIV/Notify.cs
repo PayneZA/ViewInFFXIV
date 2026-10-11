@@ -26,7 +26,7 @@ internal static class Notify
         Plugin.ChatGui.Print(new Dalamud.Game.Text.XivChatEntry
         {
             Type = Dalamud.Game.Text.XivChatType.Echo,
-            Message = $"[ViewInFFXIV] {text}",
+            Message = $"[Matinee] {text}",
         });
 
     private static void Show(NotificationType type, string title, string? text)

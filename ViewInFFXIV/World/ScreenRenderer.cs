@@ -24,7 +24,7 @@ public sealed unsafe class ScreenRenderer : IDisposable
 {
     private const uint BezelColor = 0xFF101010;
 
-    /// <summary>Debug (/viewin rdebug overlay): draw with the overlay instead of in-world.</summary>
+    /// <summary>Debug (/matinee rdebug overlay): draw with the overlay instead of in-world.</summary>
     public static bool ForceOverlay;
 
     /// <summary>Missed in-world frames in a row before the overlay steps in.</summary>
@@ -83,7 +83,7 @@ public sealed unsafe class ScreenRenderer : IDisposable
         return problem != null ? $"{tier} · {problem}" : tier;
     }
 
-    /// <summary>Counters for /viewin rstat.</summary>
+    /// <summary>Counters for /matinee rstat.</summary>
     public string Stats() =>
         $"tier {Active} · {Describe()} · willDraw {WillDraw} · behindUi {config.DrawBehindGameUi} · " +
         (injector == null ? "no in-world hook" : $"GPU {injector.TakeGpuMilliseconds():0.000} ms/frame · rendered {injector.RenderFrames} · drawn {injector.Drawn} · stale {injector.Stale} · missed {injector.Missed} · failed {injector.Failed} · faulted {injector.Faulted} · framework ticks during render {FrameworkOverlaps}/{FrameworkTicks} · last miss: {injector.LastMiss}");
