@@ -501,6 +501,13 @@ public sealed class Plugin : IDalamudPlugin
                     WallRenderer.Pass.IgnoreDepth = !WallRenderer.Pass.IgnoreDepth;
                 ChatGui.Print($"Wall screen debug: ignore depth {WallRenderer.Pass.IgnoreDepth} · show scene info {WallRenderer.Pass.ShowInfo} · show depth {WallRenderer.Pass.ShowDepth} · no depth copy {WallRenderer.Pass.NoDepthCopy} · force overlay {ScreenRenderer.ForceOverlay}", ChatPrefix);
                 break;
+            case "experimental":
+                Configuration.ExperimentalDepth = rest switch { "on" => true, "off" => false, _ => !Configuration.ExperimentalDepth };
+                Configuration.Save();
+                ChatGui.Print(Configuration.ExperimentalDepth
+                    ? "Experimental mode on: the screen's depth settings are in Settings → Screen. /matinee experimental off goes back."
+                    : "Experimental mode off.", ChatPrefix);
+                break;
             case "rprobe":
                 WallRenderer.Pass.ProbeArmed = true;
                 ChatGui.Print("Probe armed: keep the TV in view and wait a moment for the result.", ChatPrefix);

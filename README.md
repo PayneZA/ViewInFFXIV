@@ -44,6 +44,7 @@ Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), 
   In game: place the TV, fine-tune distance / height / size / turn / tilt, saved spots (lounge, bedroom, …) and
   spot codes. Spots belong to the house they were made in, and each house brings back the spot you last used there.
 - **Settings** — subtitles, Up next, sound, screen behaviour, the browser, diagnostics.
+  Screen behaviour includes how far furniture in front of the screen is covered (0–2 yalms, 1 by default).
 - **Mini remote** — the remote button at the top shows a small bar with the title, seek bar and transport.
   Drag it wherever it doesn't get in the way; it only shows while something is on the TV and fades while you're not using it.
 - **Twitch on the TV** — type a channel (or paste a twitch.tv link) and it plays on your screen, video only, no

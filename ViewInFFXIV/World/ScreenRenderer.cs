@@ -65,6 +65,23 @@ public sealed unsafe class ScreenRenderer : IDisposable
     /// <summary>The screen is in game, switched on and placed in the current zone.</summary>
     public bool WillDraw => config.ScreenMode == ScreenMode.InGame && config.ScreenEnabled && config.ScreenTerritory == client.TerritoryType;
 
+    public string GpuName => wall?.GpuName ?? "";
+
+    /// <summary>
+    /// The depth test (people and furniture hiding the screen, name plates behind it) is known to work: NVIDIA and
+    /// unknown cards. On AMD and Intel it has not been verified, and hid the whole screen on an AMD Radeon RX 9070 XT.
+    /// </summary>
+    public bool DepthTestSupported => wall?.GpuVendorId is not (0x1002 or 0x8086);
+
+    /// <summary>The depth settings are offered: a supported card, or experimental mode.</summary>
+    public bool DepthControlsVisible => DepthTestSupported || config.ExperimentalDepth;
+
+    /// <summary>
+    /// The screen shows over everything instead of hiding behind people and furniture. Forced on where the depth test
+    /// is not supported; otherwise the player's choice (version 5.5.0.3's checkbox counts when it was ticked).
+    /// </summary>
+    public bool ShowOverEverything => !DepthControlsVisible || (config.ScreenOverEverything ?? (DepthTestSupported && config.IgnoreSceneDepth));
+
     /// <summary>How the screen was shown on the last frame.</summary>
     public Tier Active { get; private set; }
 
@@ -143,9 +160,9 @@ public sealed unsafe class ScreenRenderer : IDisposable
             Center = center,
             HalfRight = right * 0.5f,
             HalfDown = down * 0.5f,
-            CoverDepth = Math.Clamp(config.ScreenCoverDepth, 0f, 1f),
+            CoverDepth = Math.Clamp(config.ScreenCoverDepth, 0f, 2f),
             HideWorldUi = config.HideWorldUiOnScreen,
-            IgnoreDepth = config.IgnoreSceneDepth,
+            IgnoreDepth = ShowOverEverything,
             Video = VideoView(texture),
             Stamp = injector?.RenderFrames ?? 0,
         };

@@ -813,8 +813,10 @@ public sealed partial class MainWindow : Window, IDisposable
     // ───────────────────────────── settings tab ─────────────────────────────
 
     /// <summary>Settings that only apply to the screen on a wall.</summary>
-    private static void DrawWallSettings(Configuration config, float width)
+    private void DrawWallSettings(Configuration config, float width)
     {
+        var depthControls = plugin.Renderer.DepthControlsVisible;
+        var overEverything = plugin.Renderer.ShowOverEverything;
         var behind = config.DrawBehindGameUi;
         if (ImGui.Checkbox("Keep chat bubbles, name plates and the HUD on top of the screen", ref behind))
         {
@@ -825,34 +827,46 @@ public sealed partial class MainWindow : Window, IDisposable
         if (config.DrawBehindGameUi)
         {
             ImGui.Indent();
-            var hideWorldUi = config.HideWorldUiOnScreen;
-            if (ImGui.Checkbox("Hide name plates and item markers over the screen", ref hideWorldUi))
+            if (depthControls)
             {
-                config.HideWorldUiOnScreen = hideWorldUi;
-                config.Save();
+                ImGui.BeginDisabled(overEverything);
+                var hideWorldUi = config.HideWorldUiOnScreen;
+                if (ImGui.Checkbox("Hide name plates and item markers over the screen", ref hideWorldUi))
+                {
+                    config.HideWorldUiOnScreen = hideWorldUi;
+                    config.Save();
+                }
+
+                ImGui.EndDisabled();
             }
 
             Ui.Dim("Chat bubbles and the HUD stay on top either way.");
             ImGui.Unindent();
         }
 
+        if (!depthControls)
+            return;
+
+        ImGui.BeginDisabled(overEverything);
         ImGui.TextUnformatted("Covers furniture in front of the screen up to");
         var cover = config.ScreenCoverDepth;
         ImGui.SetNextItemWidth(width);
-        if (ImGui.SliderFloat("##cover", ref cover, 0f, 1f, "%.2f yalms"))
+        if (ImGui.SliderFloat("##cover", ref cover, 0f, 2f, "%.2f yalms"))
             config.ScreenCoverDepth = cover;
         if (ImGui.IsItemDeactivatedAfterEdit())
             config.Save();
+        ImGui.EndDisabled();
         Ui.Dim("For a screen hung over furniture or set into a wall. People always pass in front of it.");
 
-        var ignoreDepth = config.IgnoreSceneDepth;
-        if (ImGui.Checkbox("Show the screen over everything (some AMD graphics cards)", ref ignoreDepth))
+        if (ImGui.Checkbox("Show the screen over everything", ref overEverything))
         {
-            config.IgnoreSceneDepth = ignoreDepth;
+            config.ScreenOverEverything = overEverything;
             config.Save();
         }
 
-        Ui.Dim("Tick this if the screen is invisible in the world but shows when you open it as a window. People and furniture then no longer pass in front of it.");
+        Ui.Dim("Use this if the screen is invisible in the world but shows when you open it as a window. People, furniture and name plates then show over the screen instead of hiding it, and the two settings above stop applying.");
+        if (config.ExperimentalDepth)
+            Ui.Dim("Experimental mode is on. /matinee experimental off goes back.");
     }
 
     private void DrawSettings()
@@ -995,6 +1009,7 @@ public sealed partial class MainWindow : Window, IDisposable
             var video = plugin.Video;
             ImGui.TextUnformatted($"Game {ImGui.GetIO().Framerate:0} fps · wall {video.Fps:0} fps · captured {host.ArrivedFps:0} fps · dropped {host.SkippedFps:0}/s");
             ImGui.TextUnformatted($"Renderer: {plugin.Renderer.Describe()} · capture GPU: {(host.Capture.Length > 0 ? host.Capture : "not started")}");
+            ImGui.TextUnformatted($"Game GPU: {(plugin.Renderer.GpuName.Length > 0 ? plugin.Renderer.GpuName : "unknown")}{(config.ExperimentalDepth ? " · experimental depth on" : "")}");
             ImGui.TextWrapped($"Helper: {(plugin.Host.HelperAlive ? "running" : "not running")} · capture error: {(string.IsNullOrEmpty(host.Error) ? "none" : host.Error)} · size {host.Width}x{host.Height}");
             if (Party.Playback is { } pb)
             {

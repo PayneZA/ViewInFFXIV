@@ -83,6 +83,18 @@ public sealed unsafe class WallRenderer : IDisposable
 
         device = Borrow<D3D11Device>(gameDevice);
         immediate = device.ImmediateContext;
+        try
+        {
+            using var dxgi = device.QueryInterface<SharpDX.DXGI.Device>();
+            using var adapter = dxgi.Adapter;
+            GpuVendorId = adapter.Description.VendorId;
+            GpuName = adapter.Description.Description;
+        }
+        catch
+        {
+            // Unknown card: treated like any other.
+        }
+
         vertexShader = new VertexShader(device, LoadShader("Wall.vs.cso"));
         pixelShader = new PixelShader(device, LoadShader("Wall.ps.cso"));
 
@@ -128,6 +140,11 @@ public sealed unsafe class WallRenderer : IDisposable
         writeDesc.IsStencilEnabled = false;
         writeDepth = new DepthStencilState(device, writeDesc);
     }
+
+    /// <summary>PCI vendor of the card the game renders on (0x1002 AMD, 0x10DE NVIDIA, 0x8086 Intel), 0 if unknown.</summary>
+    public int GpuVendorId { get; }
+
+    public string GpuName { get; } = "";
 
     /// <summary>Our reference to the game's device, for wrapping video views.</summary>
     public D3D11Device Device => device;

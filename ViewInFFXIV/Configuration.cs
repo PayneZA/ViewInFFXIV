@@ -87,14 +87,26 @@ public sealed class Configuration : IPluginConfiguration
     public bool DrawBehindGameUi { get; set; } = true;
 
     /// <summary>Walls and furniture up to this many metres in front of the screen are covered by it; people never are.</summary>
-    public float ScreenCoverDepth { get; set; } = 0.45f;
+    public float ScreenCoverDepth { get; set; } = 1f;
 
     /// <summary>With the UI on top: name plates and housing item markers still do not show over the screen.</summary>
     public bool HideWorldUiOnScreen { get; set; } = true;
 
     /// <summary>
-    /// Show the screen over everything in the scene instead of hiding it behind objects and people. For graphics cards
-    /// where the depth test hides the whole screen.
+    /// Show the screen over everything in the scene instead of hiding it behind objects and people. Null (never
+    /// touched): off. Only offered on cards where the depth test works, or in experimental mode.
+    /// </summary>
+    public bool? ScreenOverEverything { get; set; }
+
+    /// <summary>
+    /// /matinee experimental: on AMD and Intel cards the screen always shows over everything (the depth test hid it
+    /// entirely on an AMD Radeon RX 9070 XT), and its depth settings are hidden. This turns them back on.
+    /// </summary>
+    public bool ExperimentalDepth { get; set; }
+
+    /// <summary>
+    /// Version 5.5.0.3's checkbox. It was saved as false for everyone who opened the settings, so only true counts
+    /// (a choice); false means the choice was never made. Superseded by <see cref="ScreenOverEverything"/>.
     /// </summary>
     public bool IgnoreSceneDepth { get; set; }
 
