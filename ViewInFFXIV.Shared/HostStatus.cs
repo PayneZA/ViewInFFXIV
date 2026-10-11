@@ -48,6 +48,68 @@ public sealed class HostStatus
 
     [JsonPropertyName("managed")]
     public ManagedBrowserStatus Managed { get; set; } = new();
+
+    /// <summary>The stream browser (Twitch). While it runs, the TV shows it instead of the party.</summary>
+    [JsonPropertyName("stream")]
+    public StreamStatus Stream { get; set; } = new();
+}
+
+/// <summary>A live stream on the TV (Twitch), in its own browser and profile.</summary>
+public sealed class StreamStatus
+{
+    /// <summary>off, starting, ready, error.</summary>
+    [JsonPropertyName("state")]
+    public string State { get; set; } = "off";
+
+    [JsonPropertyName("activity")]
+    public string Activity { get; set; } = "";
+
+    [JsonPropertyName("error")]
+    public string? Error { get; set; }
+
+    /// <summary>Twitch channel login, e.g. "monstercat".</summary>
+    [JsonPropertyName("channel")]
+    public string Channel { get; set; } = "";
+
+    /// <summary>The channel's display name, as the player shows it.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = "";
+
+    /// <summary>Game or category.</summary>
+    [JsonPropertyName("game")]
+    public string Game { get; set; } = "";
+
+    /// <summary>The player says the channel is offline.</summary>
+    [JsonPropertyName("offline")]
+    public bool Offline { get; set; }
+
+    /// <summary>Frames are coming in (the video is on the TV).</summary>
+    [JsonPropertyName("playing")]
+    public bool Playing { get; set; }
+
+    /// <summary>Live, but no picture for a while: something on the page (a content warning, a prompt) wants you.</summary>
+    [JsonPropertyName("stuck")]
+    public bool Stuck { get; set; }
+
+    /// <summary>Twitch has no channel by that name.</summary>
+    [JsonPropertyName("missing")]
+    public bool Missing { get; set; }
+
+    [JsonPropertyName("videoHeight")]
+    public int VideoHeight { get; set; }
+
+    [JsonPropertyName("hwnd")]
+    public long Hwnd { get; set; }
+
+    /// <summary>Popped out onto your monitor.</summary>
+    [JsonPropertyName("shown")]
+    public bool Shown { get; set; }
+
+    [JsonIgnore]
+    public bool Active => State is "starting" or "ready";
 }
 
 public sealed class ManagedBrowserStatus

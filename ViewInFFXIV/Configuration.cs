@@ -144,6 +144,12 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool AutoAdvance { get; set; } = true;
 
+    /// <summary>Twitch channels you watched, newest first.</summary>
+    public List<string> TwitchRecent { get; set; } = [];
+
+    /// <summary>Twitch volume, 0-100 (yours only).</summary>
+    public int TwitchVolume { get; set; } = 100;
+
     /// <summary>"auto" (Brave, else Chrome, else Edge) or a browser id from <see cref="Shared.Browsers"/>.</summary>
     public string Browser { get; set; } = Shared.Browsers.Auto;
 

@@ -149,6 +149,36 @@ internal sealed class PlayerControls
         return volume;
     }
 
+    /// <summary>Your Twitch volume (just you): mute button, bar and percentage on one line; set when you let go.</summary>
+    public void DrawStreamVolume(float size, float barWidth)
+    {
+        var twitch = plugin.Twitch;
+        var volume = volumeDrag ?? plugin.Configuration.TwitchVolume;
+        if (volume > 0)
+            lastVolume = volume;
+        var y = ImGui.GetCursorPosY();
+        var icon = volume == 0 ? FontAwesomeIcon.VolumeMute : volume < 50 ? FontAwesomeIcon.VolumeDown : FontAwesomeIcon.VolumeUp;
+        if (Ui.RoundIconButton("##tmute", icon, size, tooltip: volume == 0 ? "Unmute" : "Mute (just you)"))
+            twitch.SetVolume(volume == 0 ? Math.Max(10, lastVolume) : 0);
+
+        ImGui.SameLine();
+        ImGui.SetCursorPosY(y + ((size - Ui.SeekBarHeight) / 2));
+        float? drag = volumeDrag / 100f;
+        var released = Ui.SeekBar("##tvol", volume / 100f, barWidth, ref drag, out var hover);
+        volumeDrag = drag is { } d ? (int)MathF.Round(d * 100) : null;
+        if (released && volumeDrag is { } dragged)
+        {
+            volumeDrag = null;
+            twitch.SetVolume(dragged);
+        }
+
+        if (hover is { } h)
+            ImGui.SetTooltip($"Your Twitch volume (just you): {(int)MathF.Round(h * 100)}%");
+        ImGui.SameLine();
+        ImGui.SetCursorPosY(y + ((size - ImGui.GetTextLineHeight()) / 2));
+        Ui.Dim($"{volume}%");
+    }
+
     /// <summary>Your volume, drawn like the seek bar; it is set when you let go.</summary>
     private void VolumeBar(int volume, float width)
     {

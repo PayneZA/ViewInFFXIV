@@ -95,8 +95,9 @@ internal sealed class UiScreenWindow : Window
         Ui.RoundedImage(plugin.Picture, size, rounding, FontAwesomeIcon.Tv);
 
         var dl = ImGui.GetWindowDrawList();
-        var playback = plugin.HighPerformance.Playback;
-        if (playback == null)
+        // Twitch brings its own picture (or "offline" card) and has no player controls here.
+        var playback = plugin.Twitch.Active ? null : plugin.HighPerformance.Playback;
+        if (playback == null && !plugin.Twitch.Active)
         {
             var hint = Ui.Fit("Nothing playing yet", size.X - 16);
             var textSize = ImGui.CalcTextSize(hint);

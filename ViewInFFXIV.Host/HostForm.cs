@@ -1,10 +1,12 @@
 using System.Diagnostics;
+using System.Globalization;
 using ViewInFFXIV.Shared;
 
 namespace ViewInFFXIV.Host;
 
 /// <summary>
-/// Hidden helper window: owns the ViewInFFXIV Brave, captures it on the GPU and answers the plugin's pipe.
+/// Hidden helper window: owns the ViewInFFXIV browsers (the watch party's and the stream's), captures the one on
+/// the TV on the GPU and answers the plugin's pipe.
 /// </summary>
 internal sealed class HostForm : Form
 {
@@ -12,10 +14,14 @@ internal sealed class HostForm : Form
     private static readonly long ExeStamp = File.GetLastWriteTimeUtc(ExePath).Ticks;
 
     private readonly PipeServer pipe;
-    private readonly ManagedBrowser managed = new();
+    private readonly ManagedBrowser managed = new(W2g.TheaterScript, waitForAdBlock: true);
     private readonly YouTubeControl youtube = new();
+    // The stream browser (Twitch): its own profile. While it runs, the TV shows it and the party is muted here.
+    private readonly ManagedBrowser stream = new(Twitch.TheaterScript, waitForAdBlock: false);
+    private readonly Twitch twitch = new();
     // Browser commands run one after another in the order they arrived (start before join, and so on).
     private Task managedChain = Task.CompletedTask;
+    private Task streamChain = Task.CompletedTask;
     private string? startError;
     private readonly System.Windows.Forms.Timer guardTimer = new();
     private readonly System.Threading.Timer pageTimer;
@@ -30,6 +36,16 @@ internal sealed class HostForm : Form
     private volatile string managedActivity = "";
     private volatile string? managedError;
     private volatile string roomUrl = "";
+    private volatile string streamState = "off";
+    private volatile string streamActivity = "";
+    private volatile string? streamError;
+    // The stream page has the video stretched (and the crop measured) since it was last opened or popped back in.
+    // Until then the TV shows nothing from it, so Twitch's own page never lands on the TV.
+    private volatile bool streamClean;
+    private IntPtr failedCaptureWindow;
+    // Last spatial audio from the plugin, kept to give the party its sound back when the stream stops.
+    private string? audioGain;
+    private string? audioPan;
 
     public HostForm(string[] args)
     {
@@ -41,6 +57,8 @@ internal sealed class HostForm : Form
         {
             _ = managed.RefreshCropAsync();
             _ = youtube.RefreshAsync(managed.IsRunning ? managed.Port : 0);
+            _ = stream.RefreshCropAsync();
+            _ = twitch.RefreshAsync(stream.IsRunning ? stream.OpenPage : null);
         }, null, 1000, 1000);
 
         Text = "ViewInFFXIV Host";
@@ -125,6 +143,15 @@ internal sealed class HostForm : Form
             error = $"{managed.Browser?.Name ?? "The browser"} was closed. Start or join the party again.";
         }
 
+        var watching = stream.IsRunning;
+        var twitchState = streamState;
+        var twitchError = streamError;
+        if (twitchState == "ready" && !watching)
+        {
+            twitchState = "error";
+            twitchError = $"{stream.Browser?.Name ?? "The browser"} was closed. Start the channel again.";
+        }
+
         var playback = managed.IsRunning ? youtube.Status : null;
         var sample = playback != null && PlaybackStatus.IsW2gSample(playback.VideoId, playback.Title, playback.Author);
         var gpu = capture;
@@ -155,6 +182,23 @@ internal sealed class HostForm : Form
                 Playback = sample ? null : playback,
                 SampleVideo = sample,
             },
+            Stream = new StreamStatus
+            {
+                State = twitchState,
+                Activity = streamActivity,
+                Error = twitchError,
+                Channel = twitch.Channel,
+                Name = twitch.Name,
+                Title = twitch.Title,
+                Game = twitch.Game,
+                Offline = watching && twitch.Offline,
+                Playing = watching && twitch.Playing,
+                Stuck = watching && twitch.Stuck && !stream.Shown,
+                Missing = watching && twitch.Missing,
+                VideoHeight = twitch.VideoHeight,
+                Hwnd = stream.Hwnd.ToInt64(),
+                Shown = stream.Shown,
+            },
         };
     }
 
@@ -163,6 +207,15 @@ internal sealed class HostForm : Form
         // Window moves are instant and must not wait behind a slow page script.
         switch (command.Op)
         {
+            case ManagedOps.Show when command.Arg == ManagedOps.StreamTarget:
+                streamClean = false;
+                stream.Show();
+                SyncCapture();
+                return;
+            case ManagedOps.Hide when command.Arg == ManagedOps.StreamTarget:
+                stream.Park();
+                _ = Task.Run(CleanStreamAsync);
+                return;
             case ManagedOps.Show:
                 managed.Show();
                 return;
@@ -170,8 +223,12 @@ internal sealed class HostForm : Form
                 managed.Park();
                 return;
             case ManagedOps.Audio:
-                youtube.SetAudio(command.Arg, command.Arg2);
-                _ = youtube.ApplyAudioAsync(managed.Port);
+                audioGain = command.Arg;
+                audioPan = command.Arg2;
+                ApplyAudio();
+                return;
+            case ManagedOps.Twitch or ManagedOps.StreamStop:
+                RunStream(command);
                 return;
             case ManagedOps.Control:
                 // Playback must feel instant, so it does not queue behind room/name scripts.
@@ -244,13 +301,13 @@ internal sealed class HostForm : Form
                     }
                 }
 
-                Invoke(StartCapture);
+                Invoke(SyncCapture);
                 return;
 
             case ManagedOps.Stop:
                 youtube.Reset();
-                Invoke(() => capture?.Stop());
                 managed.Stop();
+                Invoke(SyncCapture);
                 managedState = "off";
                 roomUrl = "";
                 return;
@@ -277,25 +334,141 @@ internal sealed class HostForm : Form
         }
     }
 
-    /// <summary>Starts (or retargets) the GPU capture on the managed Brave window. UI thread.</summary>
-    private void StartCapture()
+    /// <summary>The browser on the TV: the stream while it runs, else the party.</summary>
+    private ManagedBrowser OnTv => stream.IsRunning ? stream : managed;
+
+    /// <summary>Points the GPU capture at the browser on the TV (starts, retargets or stops it). UI thread.</summary>
+    private void SyncCapture()
     {
-        if (!managed.IsRunning)
+        var source = OnTv;
+        // A popped-out (or not yet stretched) stream shows Twitch's page: the TV goes blank meanwhile.
+        if (!source.IsRunning || (source == stream && (stream.Shown || !streamClean)))
+        {
+            if (capture is { } idle && idle.Window != IntPtr.Zero)
+                idle.Stop();
+            return;
+        }
+
+        // A failed start is not retried on every tick.
+        if (capture?.Window == source.Hwnd || failedCaptureWindow == source.Hwnd)
             return;
 
         try
         {
+            failedCaptureWindow = source.Hwnd;
             capture ??= new GpuCapture(adapterLuid);
-            if (capture.Window != managed.Hwnd)
-                capture.Start(managed.Hwnd);
+            capture.Start(source.Hwnd);
             lastError = capture.AdapterMatched
                 ? null
-                : $"Could not find the game's graphics card, so the screen may stay black. Check that FFXIV and {managed.Browser?.Name ?? "the browser"} use the same GPU.";
+                : $"Could not find the game's graphics card, so the screen may stay black. Check that FFXIV and {source.Browser?.Name ?? "the browser"} use the same GPU.";
+            failedCaptureWindow = IntPtr.Zero;
         }
         catch (Exception ex)
         {
             lastError = $"GPU capture failed: {ex.Message}";
         }
+    }
+
+    /// <summary>The plugin's spatial audio goes to what is on the TV; the party stays silent under a stream.</summary>
+    private void ApplyAudio()
+    {
+        var gain = audioGain ?? "1";
+        var pan = audioPan ?? "0";
+        youtube.SetAudio(stream.IsRunning ? "0" : gain, pan);
+        _ = youtube.ApplyAudioAsync(managed.Port);
+        if (double.TryParse(gain, NumberStyles.Float, CultureInfo.InvariantCulture, out var g) && double.IsFinite(g)
+            && double.TryParse(pan, NumberStyles.Float, CultureInfo.InvariantCulture, out var p) && double.IsFinite(p))
+            twitch.SetAudio(g, p);
+    }
+
+    private void RunStream(HostCommand command)
+    {
+        // Its own queue: a stream never waits behind party scripts, nor the other way round.
+        streamChain = streamChain.ContinueWith(async _ =>
+        {
+            try
+            {
+                streamError = null;
+                await ExecuteStreamAsync(command).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                streamError = ex.Message;
+                streamState = stream.IsRunning ? "ready" : "error";
+            }
+            finally
+            {
+                streamActivity = "";
+                ApplyAudio();
+                BeginInvoke(SyncCapture);
+            }
+        }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
+    }
+
+    private async Task ExecuteStreamAsync(HostCommand command)
+    {
+        if (command.Op == ManagedOps.StreamStop)
+        {
+            twitch.Reset();
+            stream.Stop();
+            streamState = "off";
+            return;
+        }
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var ct = cts.Token;
+        var channel = TwitchChannel.Parse(command.Arg) ?? throw new InvalidOperationException($"\"{command.Arg}\" is not a Twitch channel.");
+        if (string.IsNullOrWhiteSpace(command.Arg2))
+            throw new InvalidOperationException("No browser profile folder was given.");
+        if (long.TryParse(command.Arg4, out var luid))
+            adapterLuid = luid;
+
+        var browser = Browsers.ById(command.Arg3) ?? Browsers.Brave;
+        streamState = "starting";
+        if (!stream.IsRunning || stream.Browser != browser)
+        {
+            streamActivity = $"Starting {browser.Name}";
+            twitch.Reset();
+            await stream.StartAsync(command.Arg2, browser, a => streamActivity = a, ct).ConfigureAwait(false);
+        }
+
+        streamActivity = $"Opening {channel} on Twitch";
+        streamClean = false;
+        await twitch.OpenAsync(stream.Page, channel, ct).ConfigureAwait(false);
+        await CleanStreamAsync().ConfigureAwait(false);
+        streamState = "ready";
+    }
+
+    /// <summary>
+    /// Stretches the stream's video and measures the crop right away (instead of on the next timer round), then
+    /// lets the TV show the stream again.
+    /// </summary>
+    private async Task CleanStreamAsync()
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < deadline && stream.IsRunning && !stream.Shown)
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                if (stream.OpenPage is { } page
+                    && await page.EvalAsync(Twitch.ReadyScript, cts.Token).ConfigureAwait(false) is { ValueKind: System.Text.Json.JsonValueKind.True })
+                {
+                    await stream.RefreshCropAsync().ConfigureAwait(false);
+                    break;
+                }
+            }
+            catch
+            {
+                // navigating; try again
+            }
+
+            await Task.Delay(200).ConfigureAwait(false);
+        }
+
+        // On a timeout the timer's theater pass takes over within a second.
+        if (!stream.Shown)
+            streamClean = true;
     }
 
     private void RequireRunning(string activity)
@@ -308,15 +481,14 @@ internal sealed class HostForm : Form
 
     private void GuardTick()
     {
-        // Keep Brave off-screen and un-minimised so it never stops rendering.
+        // Keep the browsers off-screen and un-minimised so they never stop rendering.
         managed.Guard();
+        stream.Guard();
 
+        // Follow the TV: a stream that ends, or whose browser is closed, hands it back to the party.
+        SyncCapture();
         if (capture is { } gpu)
-        {
-            gpu.Crop = managed.Crop;
-            if (gpu.Window != IntPtr.Zero && !managed.IsRunning)
-                gpu.Stop();
-        }
+            gpu.Crop = OnTv.Crop;
     }
 
     protected override void Dispose(bool disposing)
@@ -329,6 +501,8 @@ internal sealed class HostForm : Form
             parent?.Dispose();
             youtube.Dispose();
             capture?.Dispose();
+            twitch.Dispose();
+            stream.Dispose();
             managed.Dispose();
             pipe.Dispose();
         }

@@ -10,11 +10,16 @@ namespace ViewInFFXIV.Host;
 internal sealed record CropRect(float Left, float Top, float Right, float Bottom);
 
 /// <summary>
-/// The watch-party browser: a dedicated Brave/Chrome/Edge instance on its own ViewInFFXIV profile, launched with
-/// anti-throttling flags and parked off-screen so it keeps rendering while nobody can see it.
-/// Minimising would stop rendering, so a minimised window is restored straight back off-screen.
+/// A browser the helper owns (the watch party's, or the stream's): a dedicated Brave/Chrome/Edge instance on its own
+/// ViewInFFXIV profile, launched with anti-throttling flags and parked off-screen so it keeps rendering while nobody
+/// can see it. Minimising would stop rendering, so a minimised window is restored straight back off-screen.
 /// </summary>
-internal sealed class ManagedBrowser : IDisposable
+/// <param name="theaterScript">
+/// Page script that stretches the video over the whole page while parked (argument true) and undoes it while popped
+/// out (false); it returns true while the video is stretched.
+/// </param>
+/// <param name="waitForAdBlock">On a brand-new Brave profile, wait for the ad-block lists before the first page.</param>
+internal sealed class ManagedBrowser(Func<bool, string> theaterScript, bool waitForAdBlock) : IDisposable
 {
     public const int WindowWidth = 1920;
     public const int WindowHeight = 1080;
@@ -84,6 +89,9 @@ internal sealed class ManagedBrowser : IDisposable
             }
         }
     }
+
+    /// <summary>The page, or null while there is no live connection (for polling that must not throw).</summary>
+    public CdpPage? OpenPage => page is { IsOpen: true } ? page : null;
 
     public CdpPage Page => page is { IsOpen: true }
         ? page
@@ -172,7 +180,7 @@ internal sealed class ManagedBrowser : IDisposable
 
         // A brand-new Brave profile downloads its ad-block lists after launch; pages opened before they
         // arrive show ads. Give the lists a moment on first run.
-        if (firstRun && browser == Browsers.Brave)
+        if (firstRun && waitForAdBlock && browser == Browsers.Brave)
         {
             progress("Downloading Brave's ad-block lists (first run only)");
             var listDir = Path.Combine(profileDir, AdBlockComponentId);
@@ -204,7 +212,7 @@ internal sealed class ManagedBrowser : IDisposable
         Shown = false;
     }
 
-    /// <summary>Brings the window onto the primary monitor so the user can click around in w2g.</summary>
+    /// <summary>Brings the window onto the primary monitor so the user can click around in the page.</summary>
     public void Show()
     {
         if (Hwnd == IntPtr.Zero)
@@ -286,7 +294,7 @@ internal sealed class ManagedBrowser : IDisposable
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
             var shown = Shown;
-            var theater = await page.EvalAsync(W2g.TheaterScript(!shown), cts.Token).ConfigureAwait(false) is { ValueKind: JsonValueKind.True };
+            var theater = await page.EvalAsync(theaterScript(!shown), cts.Token).ConfigureAwait(false) is { ValueKind: JsonValueKind.True };
             var value = await page.EvalAsync(LargestMediaScript, cts.Token).ConfigureAwait(false);
             // Windows.Graphics.Capture frames cover the visible frame (DWM bounds), which can be smaller than
             // GetWindowRect by invisible resize borders, so measure against those.

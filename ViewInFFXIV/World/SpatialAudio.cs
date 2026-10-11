@@ -17,6 +17,7 @@ public sealed class SpatialAudio
     private readonly Plugin plugin;
     private float sentGain = -1;
     private float sentPan;
+    private bool sentTwitch;
     private DateTime nextSend;
 
     public SpatialAudio(Plugin plugin)
@@ -30,15 +31,25 @@ public sealed class SpatialAudio
     public void Tick()
     {
         var party = plugin.HighPerformance;
-        if (!party.Active || party.Playback == null)
+        var twitch = plugin.Twitch.Active;
+        if (!twitch && (!party.Active || party.Playback == null))
         {
             // A new video page starts at full volume; send again once it plays.
             sentGain = -1;
             return;
         }
 
+        // Twitch has no player volume of ours: your Twitch volume rides on the same gain. Switching sends afresh.
+        if (twitch != sentTwitch)
+        {
+            sentTwitch = twitch;
+            sentGain = -1;
+        }
+
         var (gain, pan) = Compute();
         Gain = gain;
+        if (twitch)
+            gain *= plugin.Configuration.TwitchVolume / 100f;
         var now = DateTime.UtcNow;
         if (now < nextSend || (MathF.Abs(gain - sentGain) < 0.02f && MathF.Abs(pan - sentPan) < 0.03f))
             return;

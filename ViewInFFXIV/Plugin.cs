@@ -19,7 +19,7 @@ public sealed class Plugin : IDalamudPlugin
     private const string AliasCommandName = "/viewinff";
     private const string ChatPrefix = "ViewInFFXIV";
     private const string Usage =
-        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | mode [game|ui] | remote | apply <code> | stop | bench";
+        "/viewin create | join <w2g link> | play <video link> | pause | resume | seek <1:23|+10> | cc [on|off] | vol <0-100> | search <words> | next | twitch <channel|out|in|stop> | browser <auto|brave|chrome|edge> | invite | show | hide | place | screen | mode [game|ui] | remote | apply <code> | stop | bench";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
@@ -47,6 +47,8 @@ public sealed class Plugin : IDalamudPlugin
     public ScreenRenderer Renderer { get; }
 
     public HighPerformance HighPerformance { get; }
+
+    public TwitchStream Twitch { get; }
 
     public Benchmark Benchmark { get; }
 
@@ -97,6 +99,7 @@ public sealed class Plugin : IDalamudPlugin
         Renderer.Initialize(PluginInterface, Log);
 
         HighPerformance = new HighPerformance(this);
+        Twitch = new TwitchStream(this);
         Benchmark = new Benchmark(this);
         Queue = new WatchQueue(this);
         Thumbnails = new ThumbnailCache(TextureProvider, Log);
@@ -122,7 +125,15 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     /// <summary>The video to show on the wall, the UI picture and the preview: null (blank) until there is one.</summary>
-    public ImTextureID? Picture => HighPerformance.ShowsVideo ? video?.Handle : null;
+    public ImTextureID? Picture => ShowsVideo ? video?.Handle : null;
+
+    /// <summary>
+    /// Twitch, while it is on, shows its video or its own "offline" card; otherwise the party once its room holds a video.
+    /// </summary>
+    private bool ShowsVideo => Twitch.Active ? !Twitch.Starting : HighPerformance.ShowsVideo;
+
+    /// <summary>Something is on the TV the remote can control: a party room, or Twitch.</summary>
+    public bool Watching => Twitch.Active || (HighPerformance.Active && HighPerformance.Status.RoomUrl.Length > 0);
 
     /// <summary>The video texture shared by the helper, on the game's GPU (created on first use).</summary>
     public SharedVideo Video
@@ -162,8 +173,8 @@ public sealed class Plugin : IDalamudPlugin
     {
         Configuration.RemoteShown = !Configuration.RemoteShown;
         Configuration.Save();
-        if (Configuration.RemoteShown && !(HighPerformance.Active && HighPerformance.Status.RoomUrl.Length > 0))
-            Notify.Info("The remote shows during a party");
+        if (Configuration.RemoteShown && !Watching)
+            Notify.Info("The remote shows during a party or Twitch");
     }
 
     /// <summary>Moves the TV between the wall (in game) and your UI.</summary>
@@ -226,6 +237,7 @@ public sealed class Plugin : IDalamudPlugin
 
         Host.Tick();
         HighPerformance.Tick();
+        Twitch.Tick();
         Queue.Tick(HighPerformance.Playback);
         Audio.Tick();
         RenderTrace.Tick();
@@ -253,7 +265,7 @@ public sealed class Plugin : IDalamudPlugin
             Video.Update(texture);
         Benchmark.VideoDone();
 
-        remote.IsOpen = Configuration.RemoteShown && HighPerformance.Active && HighPerformance.Status.RoomUrl.Length > 0;
+        remote.IsOpen = Configuration.RemoteShown && Watching;
         if (!ShouldHidePluginWindows())
             WindowSystem.Draw();
         UiScreen.IsOpen = UiScreenShown;
@@ -290,6 +302,34 @@ public sealed class Plugin : IDalamudPlugin
         var browser = HighPerformance.Browser;
         Notify.Info($"Browser: {(id == Browsers.Auto ? $"automatic ({browser?.Name ?? "none installed"})" : browser?.Name)}");
         HighPerformance.SwitchBrowser();
+    }
+
+    private void OnTwitchCommand(string rest)
+    {
+        switch (rest.ToLowerInvariant())
+        {
+            case "":
+                if (Twitch.Active)
+                    ChatGui.Print("Usage: /viewin twitch <channel or twitch.tv link> | out | in | stop", ChatPrefix);
+                else if (Configuration.TwitchRecent.Count > 0)
+                    Twitch.Watch(Configuration.TwitchRecent[0]);
+                else
+                    ChatGui.Print("Usage: /viewin twitch <channel or twitch.tv link>", ChatPrefix);
+                break;
+            case "out" or "popout":
+                Twitch.PopOut();
+                break;
+            case "in" or "popin":
+                Twitch.PopIn();
+                break;
+            case "stop" or "off":
+                if (Twitch.Active)
+                    Twitch.Stop();
+                break;
+            default:
+                Twitch.Watch(rest);
+                break;
+        }
     }
 
     private void OnCommand(string command, string args)
@@ -370,6 +410,9 @@ public sealed class Plugin : IDalamudPlugin
             case "browser":
                 SetBrowser(rest.ToLowerInvariant());
                 break;
+            case "twitch" or "ttv":
+                OnTwitchCommand(rest);
+                break;
             case "search" or "yt":
                 if (rest.Length == 0)
                     ChatGui.Print("Usage: /viewin search <words>", ChatPrefix);
@@ -405,8 +448,9 @@ public sealed class Plugin : IDalamudPlugin
                 Benchmark.Start(Video.Device);
                 break;
             case "stop":
-                HighPerformance.Stop();
-                Notify.Info("Left the party");
+                var hadTwitch = Twitch.Active;
+                HighPerformance.Stop(everything: true);
+                Notify.Info(hadTwitch ? "Stopped the party and Twitch" : "Left the party");
                 break;
             default:
                 ChatGui.Print(Usage, ChatPrefix);

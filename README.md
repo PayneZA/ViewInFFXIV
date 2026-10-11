@@ -36,7 +36,12 @@ Not supported: Linux / Steam Deck / Mac (Wine has no Windows.Graphics.Capture), 
   spot codes. Spots belong to the house they were made in, and each house brings back the spot you last used there.
 - **Settings** — subtitles, Up next, sound, screen behaviour, the browser, diagnostics.
 - **Mini remote** — the remote button at the top shows a small bar with the title, seek bar and transport.
-  Drag it wherever it doesn't get in the way; it only shows during a party and fades while you're not using it.
+  Drag it wherever it doesn't get in the way; it only shows during a party or Twitch and fades while you're not using it.
+- **Twitch on the TV** — type a channel (or paste a twitch.tv link) and it plays on your screen, video only, no
+  account needed. It runs in its own browser profile; during a party, the party carries on muted for you and one
+  button takes you back. Offline channels show a plain "offline" card until they go live. Pop out shows Twitch's
+  page on your monitor if it asks something (a content warning, for example); pop in puts it back on the TV.
+  Twitch's own ads do show.
 
 **Sound from the screen** — it gets quieter as you walk away, pans left/right with the camera and goes silent when you
 leave the screen's zone (Settings → Sound). With the screen on your UI it plays at your own volume.
@@ -57,8 +62,9 @@ Everything is in the window; these are for macros and chat.
 | `/viewin place` / `screen` / `apply <code>` | Put the screen in front of you / open the Screen tab / use a spot code |
 | `/viewin mode [game\|ui]` | Put the TV in game or on your UI (no argument: switch) |
 | `/viewin remote` | Show or hide the mini remote |
+| `/viewin twitch <channel>` / `twitch out\|in\|stop` | Put a Twitch channel on the TV / pop its page out or in / stop it |
 | `/viewin browser auto\|brave\|chrome\|edge` | Pick the browser (switches a running party over) |
-| `/viewin stop` | Leave the party and close the browser |
+| `/viewin stop` | Leave the party, stop Twitch and close the browsers |
 | `/viewin bench` | 25-second performance check, results in chat |
 
 Your name in the room is always your character name.

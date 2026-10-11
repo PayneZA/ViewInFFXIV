@@ -92,6 +92,7 @@ public sealed partial class HighPerformance
 
     public void CreateRoom()
     {
+        EndTwitch();
         Start();
         creatingRoom = true;
         connectingUntil = DateTime.UtcNow + TimeSpan.FromSeconds(90);
@@ -107,6 +108,13 @@ public sealed partial class HighPerformance
     {
         Dropped = false;
         startWith = video;
+        PutScreenUp();
+        CreateRoom();
+    }
+
+    /// <summary>The TV comes up: on your UI, at this zone's spot, or in front of you when the zone has none yet.</summary>
+    public void PutScreenUp()
+    {
         var config = plugin.Configuration;
         if (config.ScreenMode == ScreenMode.OnUi)
         {
@@ -125,8 +133,6 @@ public sealed partial class HighPerformance
                 plugin.Placement.PlaceInFront(Plugin.ClientState, Plugin.ObjectTable, config, plugin.CurrentHouse);
             }
         }
-
-        CreateRoom();
     }
 
     /// <summary>Joins the w2g room in an invite; a screen spot in the same invite is saved and used too.</summary>
@@ -144,6 +150,7 @@ public sealed partial class HighPerformance
 
         Dropped = false;
         startWith = null;
+        EndTwitch();
         Start();
         creatingRoom = false;
         connectingUntil = DateTime.UtcNow + TimeSpan.FromSeconds(90);
@@ -257,10 +264,23 @@ public sealed partial class HighPerformance
 
     public void Hide() => plugin.Host.Send(HostCommand.Managed(ManagedOps.Hide));
 
-    /// <summary>Closes Brave and the helper.</summary>
-    public void Stop()
+    /// <summary>A party you start or join takes the TV back from Twitch.</summary>
+    private void EndTwitch()
     {
-        plugin.Host.StopHost();
+        if (plugin.Twitch.Active)
+            plugin.Host.Send(HostCommand.Managed(ManagedOps.StreamStop));
+    }
+
+    /// <summary>
+    /// Leaves the party: closes its browser, and the helper too unless Twitch is on the TV. With
+    /// <paramref name="everything"/>, Twitch closes as well.
+    /// </summary>
+    public void Stop(bool everything = false)
+    {
+        if (plugin.Twitch.Active && !everything)
+            plugin.Host.Send(HostCommand.Managed(ManagedOps.Stop));
+        else
+            plugin.Host.StopHost();
         bringToFront = false;
         connectingUntil = DateTime.MinValue;
         startWith = null;
@@ -299,7 +319,12 @@ public sealed partial class HighPerformance
             startWith = null;
             connectingUntil = DateTime.MinValue;
             Dropped = hadRoom;
-            if (hadRoom)
+            if (!hadRoom && plugin.Twitch.WasActive)
+            {
+                Notify.Error("Twitch stopped unexpectedly");
+                Notify.Chat("Twitch stopped unexpectedly. Start the channel again from /viewin, or type /viewin twitch followed by its name.");
+            }
+            else if (hadRoom)
             {
                 Notify.Error("The watch party stopped");
                 Notify.Chat("The watch party stopped unexpectedly. Press \"Rejoin your last party\" in /viewin, or type /viewin join, to get back in.");

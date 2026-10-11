@@ -145,7 +145,10 @@ public sealed partial class MainWindow : Window, IDisposable
         var playback = Party.Playback;
         var helper = plugin.Host.HelperAlive;
 
-        if (Party.Connecting)
+        var twitch = Twitch.Active;
+        if (twitch)
+            Ui.Pill(Twitch.Starting ? "◌ Twitch…" : Twitch.Status.Playing ? "● TWITCH" : "● Twitch · offline", Twitch.Status.Playing ? Ui.Live : Ui.TextDim, filled: Twitch.Status.Playing);
+        else if (Party.Connecting)
             Ui.Pill($"◌ {Party.ConnectingActivity}…", Ui.Warn);
         else if (!helper || status.State == "off")
             Ui.Pill("○ Off", Ui.TextDim);
@@ -160,7 +163,8 @@ public sealed partial class MainWindow : Window, IDisposable
         else
             Ui.Pill("● Ready", Ui.Good);
 
-        if (status.RoomUrl.Length == 0)
+        var room = status.RoomUrl.Length > 0;
+        if (!room && !twitch)
         {
             ImGui.Spacing();
             return;
@@ -168,11 +172,14 @@ public sealed partial class MainWindow : Window, IDisposable
 
         const string inviteLabel = "Invite friends";
         var inviteWidth = ImGui.CalcTextSize(inviteLabel).X + 20;
-        ImGui.SameLine();
-        if (ImGuiComponents.IconButton("##room", FontAwesomeIcon.Users))
-            ImGui.OpenPopup("room");
-        if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Room");
+        if (room)
+        {
+            ImGui.SameLine();
+            if (ImGuiComponents.IconButton("##room", FontAwesomeIcon.Users))
+                ImGui.OpenPopup("room");
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Room");
+        }
 
         // The mini remote's switch, lit while it's shown.
         ImGui.SameLine();
@@ -185,6 +192,12 @@ public sealed partial class MainWindow : Window, IDisposable
             ImGui.PopStyleColor();
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip(remoteShown ? "Hide the mini remote" : "Show the mini remote: small controls you can drag anywhere");
+
+        if (!room)
+        {
+            ImGui.Spacing();
+            return;
+        }
 
         ImGui.SameLine();
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() + MathF.Max(0, ImGui.GetContentRegionAvail().X - inviteWidth));
@@ -239,13 +252,26 @@ public sealed partial class MainWindow : Window, IDisposable
             return;
         }
 
+        if (Twitch.Active)
+        {
+            DrawTwitch();
+            return;
+        }
+
         var status = Party.Status;
         if (!Party.Active || status.RoomUrl.Length == 0)
         {
             if (Party.Connecting || (Party.Active && status.State is "starting" or "busy"))
+            {
                 DrawStarting();
+            }
             else
+            {
                 DrawWelcome();
+                DrawTwitchWelcome();
+                DrawWatchAgain();
+            }
+
             return;
         }
 
@@ -263,6 +289,8 @@ public sealed partial class MainWindow : Window, IDisposable
             problems.Add(plugin.Host.Status.Error!);
         if (plugin.Host.Status.SharedTexture.Length > 0 && plugin.Video.Error is { } videoError)
             problems.Add(videoError);
+        if (!string.IsNullOrEmpty(Twitch.Status.Error))
+            problems.Add(Twitch.Status.Error);
         if (Party.Playback is { PlayerError.Length: > 0 } broken)
             problems.Add($"YouTube says: {broken.PlayerError}");
         if (problems.Count == 0)
@@ -364,8 +392,6 @@ public sealed partial class MainWindow : Window, IDisposable
                     Util.OpenLink(Browsers.BraveDownloadUrl);
             }
         });
-
-        DrawWatchAgain();
     }
 
     /// <summary>Under the welcome card: what you watched lately. Play starts a party with it; + lines it up.</summary>
@@ -453,17 +479,26 @@ public sealed partial class MainWindow : Window, IDisposable
     {
         ImGui.Spacing();
         var width = ImGui.GetContentRegionAvail().X;
-        ImGui.SetNextItemWidth(width - 44);
+        ImGui.SetNextItemWidth(width - 44 - 36);
         var enter = ImGui.InputTextWithHint("##search", "Search YouTube or paste a link…", ref searchInput, 512, ImGuiInputTextFlags.EnterReturnsTrue);
         ImGui.SameLine();
         if (ImGuiComponents.IconButton("##go", FontAwesomeIcon.Search) || enter)
             Submit(searchInput.Trim());
+        ImGui.SameLine();
+        DrawTwitchPopupButton();
     }
 
     private void Submit(string text)
     {
         if (text.Length == 0)
             return;
+
+        if (TwitchChannel.IsLink(text))
+        {
+            if (Twitch.Watch(text))
+                searchInput = "";
+            return;
+        }
 
         if (YouTubeSearch.FindVideoId(text) is { } id)
         {

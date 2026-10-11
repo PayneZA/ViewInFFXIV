@@ -8,7 +8,7 @@ namespace ViewInFFXIV.Windows;
 
 /// <summary>
 /// The mini remote: the title, seek bar and transport in a small bar you drag wherever it doesn't get in the way.
-/// It is only there during a party, and it fades to faint while the mouse is elsewhere. Shown or hidden with the
+/// It is only there during a party or Twitch, and it fades to faint while the mouse is elsewhere. Shown or hidden with the
 /// remote button in the main window, /viewin remote, Settings, or its own X.
 /// </summary>
 internal sealed class RemoteWindow : Window
@@ -65,8 +65,11 @@ internal sealed class RemoteWindow : Window
 
         var inner = ImGui.GetContentRegionAvail().X;
         var left = ImGui.GetCursorPosX();
-        var playback = plugin.HighPerformance.Playback;
-        if (playback == null)
+        var twitch = plugin.Twitch;
+        var playback = twitch.Active ? null : plugin.HighPerformance.Playback;
+        if (twitch.Active)
+            ImGui.TextUnformatted(Ui.Fit(twitch.Status.Offline ? $"{twitch.DisplayName} (offline)" : $"Twitch · {twitch.DisplayName}", inner - 64));
+        else if (playback == null)
             Ui.Dim("Nothing playing yet");
         else
             ImGui.TextUnformatted(Ui.Fit(playback.Title, inner - 64));
@@ -80,7 +83,13 @@ internal sealed class RemoteWindow : Window
             plugin.Configuration.Save();
         }
 
-        if (playback != null)
+        if (twitch.Active)
+        {
+            if (twitch.Status.Title.Length > 0 && !twitch.Status.Offline)
+                Ui.Dim(Ui.Fit(twitch.Status.Title, inner));
+            MainWindow.DrawTwitchButtons(plugin, controls, 0.85f);
+        }
+        else if (playback != null)
         {
             controls.DrawSeek(playback, inner);
             controls.DrawTransport(playback, 0.85f);
