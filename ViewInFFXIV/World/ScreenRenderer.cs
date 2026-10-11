@@ -145,6 +145,7 @@ public sealed unsafe class ScreenRenderer : IDisposable
             HalfDown = down * 0.5f,
             CoverDepth = Math.Clamp(config.ScreenCoverDepth, 0f, 1f),
             HideWorldUi = config.HideWorldUiOnScreen,
+            IgnoreDepth = config.IgnoreSceneDepth,
             Video = VideoView(texture),
             Stamp = injector?.RenderFrames ?? 0,
         };

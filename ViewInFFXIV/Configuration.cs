@@ -92,6 +92,12 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>With the UI on top: name plates and housing item markers still do not show over the screen.</summary>
     public bool HideWorldUiOnScreen { get; set; } = true;
 
+    /// <summary>
+    /// Show the screen over everything in the scene instead of hiding it behind objects and people. For graphics cards
+    /// where the depth test hides the whole screen.
+    /// </summary>
+    public bool IgnoreSceneDepth { get; set; }
+
     /// <summary>The mini remote (<see cref="Windows.RemoteWindow"/>) is shown during a party.</summary>
     public bool RemoteShown { get; set; }
 

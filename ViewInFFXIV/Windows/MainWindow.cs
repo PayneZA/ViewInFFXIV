@@ -844,6 +844,15 @@ public sealed partial class MainWindow : Window, IDisposable
         if (ImGui.IsItemDeactivatedAfterEdit())
             config.Save();
         Ui.Dim("For a screen hung over furniture or set into a wall. People always pass in front of it.");
+
+        var ignoreDepth = config.IgnoreSceneDepth;
+        if (ImGui.Checkbox("Show the screen over everything (some AMD graphics cards)", ref ignoreDepth))
+        {
+            config.IgnoreSceneDepth = ignoreDepth;
+            config.Save();
+        }
+
+        Ui.Dim("Tick this if the screen is invisible in the world but shows when you open it as a window. People and furniture then no longer pass in front of it.");
     }
 
     private void DrawSettings()

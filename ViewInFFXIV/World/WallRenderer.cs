@@ -27,6 +27,9 @@ public sealed class WallFrame
     /// <summary>Name plates and housing item markers do not show over the screen (in-world drawing only).</summary>
     public bool HideWorldUi { get; init; }
 
+    /// <summary>Do not test against scene depth: the screen shows over everything (setting for graphics cards that hide it).</summary>
+    public bool IgnoreDepth { get; init; }
+
     /// <summary>The video, or null for a switched-off screen. Owned by <see cref="ScreenRenderer"/>.</summary>
     public ShaderResourceView? Video { get; init; }
 
@@ -278,7 +281,7 @@ public sealed unsafe class WallRenderer : IDisposable
             var rtv = TargetView((nint)target->D3D11Texture2D);
             if (rtv == null)
                 return false;
-            var sceneDepth = IgnoreDepth ? null : DepthView(depth);
+            var sceneDepth = IgnoreDepth || frame.IgnoreDepth ? null : DepthView(depth);
             DepthStencilView? depthOut = null;
             if (sceneDepth != null && writeDepth && !NoDepthCopy && DepthWriteViews() is { } views)
             {
