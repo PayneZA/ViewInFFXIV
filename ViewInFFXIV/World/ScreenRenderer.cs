@@ -86,7 +86,7 @@ public sealed unsafe class ScreenRenderer : IDisposable
     /// <summary>Counters for /matinee rstat.</summary>
     public string Stats() =>
         $"tier {Active} · {Describe()} · willDraw {WillDraw} · behindUi {config.DrawBehindGameUi} · " +
-        (injector == null ? "no in-world hook" : $"GPU {injector.TakeGpuMilliseconds():0.000} ms/frame · rendered {injector.RenderFrames} · drawn {injector.Drawn} · stale {injector.Stale} · missed {injector.Missed} · failed {injector.Failed} · faulted {injector.Faulted} · framework ticks during render {FrameworkOverlaps}/{FrameworkTicks} · last miss: {injector.LastMiss}");
+        (injector == null ? "no in-world hook" : $"GPU {injector.TakeGpuMilliseconds():0.000} ms/frame · rendered {injector.RenderFrames} · drawn {injector.Drawn} · stale {injector.Stale} · missed {injector.Missed} · failed {injector.Failed} · faulted {injector.Faulted} · framework ticks during render {FrameworkOverlaps}/{FrameworkTicks} · last miss: {injector.LastMiss} · depth: {injector.DepthInfo}");
 
     public long FrameworkTicks;
     public long FrameworkOverlaps;

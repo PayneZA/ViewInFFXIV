@@ -207,6 +207,9 @@ public sealed unsafe class WallRenderer : IDisposable
         /// <summary>Debug (/matinee rdebug info): paint what the occlusion test sees.</summary>
         public static bool ShowInfo;
 
+        /// <summary>Debug (/matinee rdebug depth): paint what the occlusion test reads from the scene depth.</summary>
+        public static bool ShowDepth;
+
         private readonly WallRenderer owner;
         private readonly DeviceContext context;
         private readonly SharpDX.Direct3D11.Buffer constants;
@@ -243,6 +246,9 @@ public sealed unsafe class WallRenderer : IDisposable
 
         /// <summary>Average GPU milliseconds per draw since the last call (read on the drawing thread's schedule).</summary>
         public double TakeGpuMilliseconds() => gpu.TakeAverage();
+
+        /// <summary>The scene depth texture as last seen (format, size, bind flags), for /matinee rstat.</summary>
+        public string DepthInfo { get; private set; } = "none";
 
         /// <summary>Whether the last draw could test against scene depth.</summary>
         public bool Occluding => depthView != null;
@@ -329,6 +335,9 @@ public sealed unsafe class WallRenderer : IDisposable
                 c.InfoMax = new Vector2(info->ActualWidth - 1, info->ActualHeight - 1);
             }
 
+            if (ShowDepth && sceneDepth != null)
+                c.DebugView = 2f;
+
             var box = context.MapSubresource(constants, 0, MapMode.WriteDiscard, SharpDX.Direct3D11.MapFlags.None);
             Marshal.StructureToPtr(c, box.DataPointer, false);
             context.UnmapSubresource(constants, 0);
@@ -408,6 +417,7 @@ public sealed unsafe class WallRenderer : IDisposable
             {
                 depthResource = Borrow<Texture2D>(texture);
                 var desc = depthResource.Description;
+                DepthInfo = $"{desc.Format} {desc.Width}x{desc.Height} bind {desc.BindFlags} samples {desc.SampleDescription.Count} array {desc.ArraySize} mips {desc.MipLevels}";
                 depthReadFormat = DepthReadFormat(desc.Format);
                 if (depthReadFormat == Format.Unknown || (desc.BindFlags & BindFlags.ShaderResource) == 0)
                 {

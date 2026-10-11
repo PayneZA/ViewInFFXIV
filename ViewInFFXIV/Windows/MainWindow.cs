@@ -985,7 +985,8 @@ public sealed partial class MainWindow : Window, IDisposable
             var host = plugin.Host.Status;
             var video = plugin.Video;
             ImGui.TextUnformatted($"Game {ImGui.GetIO().Framerate:0} fps · wall {video.Fps:0} fps · captured {host.ArrivedFps:0} fps · dropped {host.SkippedFps:0}/s");
-            ImGui.TextUnformatted($"Renderer: {plugin.Renderer.Describe()} · capture GPU: {host.Capture}");
+            ImGui.TextUnformatted($"Renderer: {plugin.Renderer.Describe()} · capture GPU: {(host.Capture.Length > 0 ? host.Capture : "not started")}");
+            ImGui.TextWrapped($"Helper: {(plugin.Host.HelperAlive ? "running" : "not running")} · capture error: {(string.IsNullOrEmpty(host.Error) ? "none" : host.Error)} · size {host.Width}x{host.Height}");
             if (Party.Playback is { } pb)
             {
                 var dropped = pb.DecodedFrames > 0 ? 100f * pb.DroppedFrames / pb.DecodedFrames : 0f;

@@ -93,6 +93,8 @@ public sealed unsafe class FrameInjector : IDisposable
 
     public string? LastProblem => pass.LastProblem;
 
+    public string DepthInfo => pass.DepthInfo;
+
     /// <summary>Shows <paramref name="next"/> from the next rendered frame on, or nothing for null.</summary>
     public void Publish(WallFrame? next) => frame = next;
 
