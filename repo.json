@@ -5,8 +5,8 @@
     "Punchline": "Watch together on a TV in your house: YouTube, Twitch, or any app.",
     "Description": "Put a TV on your wall and watch with friends. Start a watch party in one click and everyone sees the same YouTube video, in sync, with the sound coming from the screen. Or put a Twitch channel on the TV, or show any app from your PC. Search, queue and control it all without leaving the game. Needs Windows 10 or 11 and the free Brave browser. Open with /matinee.",
     "InternalName": "ViewInFFXIV",
-    "AssemblyVersion": "5.5.0.1",
-    "TestingAssemblyVersion": "5.5.0.1",
+    "AssemblyVersion": "5.5.0.2",
+    "TestingAssemblyVersion": "5.5.0.2",
     "RepoUrl": "https://github.com/PayneZA/ViewInFFXIV",
     "IconUrl": "https://raw.githubusercontent.com/PayneZA/ViewInFFXIV/main/ViewInFFXIV/images/icon.png",
     "ApplicableVersion": "any",
@@ -21,9 +21,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v5.5.0.1/latest.zip",
-    "DownloadLinkTesting": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v5.5.0.1/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v5.5.0.1/latest.zip",
-    "LastUpdate": "1791743242"
+    "DownloadLinkInstall": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v5.5.0.2/latest.zip",
+    "DownloadLinkTesting": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v5.5.0.2/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/PayneZA/ViewInFFXIV/releases/download/v5.5.0.2/latest.zip",
+    "LastUpdate": "1791743655"
   }
 ]
