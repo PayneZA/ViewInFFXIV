@@ -27,8 +27,17 @@ public sealed class WallFrame
     /// <summary>Name plates and housing item markers do not show over the screen (in-world drawing only).</summary>
     public bool HideWorldUi { get; init; }
 
-    /// <summary>Do not test against scene depth: the screen shows over everything (setting for graphics cards that hide it).</summary>
-    public bool IgnoreDepth { get; init; }
+    /// <summary>How people and furniture hide the screen.</summary>
+    public DepthMode Mode { get; init; } = DepthMode.Shader;
+
+    /// <summary>Tell people from scenery with G-buffer 3 (strict tolerance for people).</summary>
+    public bool UseSceneInfo { get; init; } = true;
+
+    /// <summary>Non-zero: run the depth self-test with this id once (<see cref="DepthLadder"/>).</summary>
+    public long TestId { get; init; }
+
+    /// <summary>Nothing hides the screen.</summary>
+    public bool IgnoreDepth => Mode == DepthMode.None;
 
     /// <summary>The video, or null for a switched-off screen. Owned by <see cref="ScreenRenderer"/>.</summary>
     public ShaderResourceView? Video { get; init; }
@@ -70,6 +79,9 @@ public sealed unsafe class WallRenderer : IDisposable
     private readonly RasterizerState rasterizer;
     private readonly DepthStencilState noDepth;
     private readonly DepthStencilState writeDepth;
+    private readonly DepthStencilState hardwareDepth;
+    private readonly DepthStencilState testDepth;
+    private readonly BlendState noColor;
     private VertexShader? probeVertex;
     private PixelShader? probePixel;
 
@@ -139,6 +151,18 @@ public sealed unsafe class WallRenderer : IDisposable
         writeDesc.DepthWriteMask = DepthWriteMask.All;
         writeDesc.IsStencilEnabled = false;
         writeDepth = new DepthStencilState(device, writeDesc);
+
+        // DepthMode.Hardware: the GPU's own test hides the screen (reverse-Z: nearer is larger), and writes it.
+        writeDesc.DepthComparison = Comparison.GreaterEqual;
+        hardwareDepth = new DepthStencilState(device, writeDesc);
+
+        // The self-test's invisible draws: the same test, writing nothing.
+        writeDesc.DepthWriteMask = DepthWriteMask.Zero;
+        testDepth = new DepthStencilState(device, writeDesc);
+
+        var noColorDesc = BlendStateDescription.Default();
+        noColorDesc.RenderTarget[0].RenderTargetWriteMask = 0;
+        noColor = new BlendState(device, noColorDesc);
     }
 
     /// <summary>PCI vendor of the card the game renders on (0x1002 AMD, 0x10DE NVIDIA, 0x8086 Intel), 0 if unknown.</summary>
@@ -163,6 +187,9 @@ public sealed unsafe class WallRenderer : IDisposable
     {
         probePixel?.Dispose();
         probeVertex?.Dispose();
+        noColor.Dispose();
+        testDepth.Dispose();
+        hardwareDepth.Dispose();
         noDepth.Dispose();
         writeDepth.Dispose();
         rasterizer.Dispose();
@@ -222,6 +249,8 @@ public sealed unsafe class WallRenderer : IDisposable
         public Vector2 Padding2;
         public Vector3 CameraPos;
         public float Padding3;
+        public float HardwareDepth;
+        public Vector3 Padding4;
     }
 
     /// <summary>
@@ -263,6 +292,20 @@ public sealed unsafe class WallRenderer : IDisposable
         private Vector2 probeCenterTexel;
         private float probeExpected;
         private int probeWaited;
+
+        /// <summary>The latest depth self-test result (render thread to main thread).</summary>
+        public static volatile DepthTestResult? LadderResult;
+
+        /// <summary>The self-test hit an error and is off for the session (the screen keeps showing over everything).</summary>
+        public static volatile bool LadderBroken;
+
+        /// <summary>Debug (/matinee rdebug fail …): report these variants as hidden ("shader", "hardware" or both).</summary>
+        public static string LadderFail = "";
+
+        private Query[]? ladderQueries;
+        private long ladderHandledId;
+        private long ladderPendingId;
+        private int ladderWaited;
 
         /// <summary>The finished probe report, once (null while there is none).</summary>
         public static string? TakeProbeResult() => Interlocked.Exchange(ref probeResult, null);
@@ -335,31 +378,76 @@ public sealed unsafe class WallRenderer : IDisposable
             var liveDepth = DepthView(depth);
             if (probeStage != null)
                 ReadProbe();
-            var sceneDepth = IgnoreDepth || frame.IgnoreDepth ? null : liveDepth;
+            if (ladderPendingId != 0)
+                ReadLadder();
+
+            float width = target->ActualWidth;
+            float height = target->ActualHeight;
+            ShaderResourceView? sceneDepth = null;
             DepthStencilView? depthOut = null;
-            if (sceneDepth != null && writeDepth && !NoDepthCopy && DepthWriteViews() is { } views)
+            var depthState = owner.noDepth;
+            var hardware = false;
+            if (!IgnoreDepth && liveDepth != null)
             {
-                // The screen reads the scene's depth and writes its own into the same buffer: read from a copy.
-                // About 15 MB at 1440p, a few hundredths of a millisecond on the GPU (measured with rstat).
-                context.CopyResource(depthResource, depthCopy);
-                sceneDepth = views.Read;
-                depthOut = views.Write;
-            }
-            else if (frame.IgnoreDepth && !IgnoreDepth && writeDepth && liveDepth != null && DepthWriteViews() is { } writeOnly)
-            {
-                // Over everything: nothing hides the screen (the depth read is what fails on some cards), but the
-                // screen still writes its depth, so name plates and housing markers behind it stay hidden. Writing
-                // depth was seen working on the card whose read fails (the depth debug view drew with it bound).
-                depthOut = writeOnly.Write;
+                // The self-test draws before ours: ours writes depth, and the test must see only the scene's.
+                if (writeDepth && frame.TestId != 0 && frame.TestId != ladderHandledId && ladderPendingId == 0)
+                    RunLadderTest(frame, rtv, depth, info, width, height, viewProj, cameraPos, nearPlane);
+
+                switch (frame.Mode)
+                {
+                    case DepthMode.Shader:
+                        sceneDepth = liveDepth;
+                        if (writeDepth && !NoDepthCopy && DepthWriteViews() is { } views)
+                        {
+                            // The screen reads the scene's depth and writes its own into the same buffer: read from a copy.
+                            // About 15 MB at 1440p, a few hundredths of a millisecond on the GPU (measured with rstat).
+                            context.CopyResource(depthResource, depthCopy);
+                            sceneDepth = views.Read;
+                            depthOut = views.Write;
+                            depthState = owner.writeDepth;
+                        }
+
+                        break;
+                    case DepthMode.Hardware when writeDepth && DepthWriteViews() is { } hardwareViews:
+                        // No depth read at all: the GPU's depth test hides the screen behind people and furniture.
+                        depthOut = hardwareViews.Write;
+                        depthState = owner.hardwareDepth;
+                        hardware = true;
+                        break;
+                    case DepthMode.None when writeDepth && DepthWriteViews() is { } overViews:
+                        // Over everything: nothing hides the screen, but it still writes its depth, so name plates and
+                        // housing markers behind it stay hidden.
+                        depthOut = overViews.Write;
+                        depthState = owner.writeDepth;
+                        break;
+                }
             }
 
             if (ProbeArmed && probeStage == null)
                 StartProbe(frame, target, depth, viewProj, nearPlane);
 
-            var infoView = sceneDepth != null ? InfoView(info) : null;
+            var infoView = frame.UseSceneInfo && (sceneDepth != null || hardware) ? InfoView(info) : null;
+            if (!TryMakeConstants(frame, width, height, depth, infoView != null ? info : null, viewProj, cameraPos, nearPlane, sceneDepth != null, hardware, out var c))
+                return false;
+            if (infoView != null && ShowInfo)
+                c.DebugView = 1f;
+            if (ShowDepth && sceneDepth != null)
+                c.DebugView = 2f;
 
-            var width = target->ActualWidth;
-            var height = target->ActualHeight;
+            Upload(c);
+            RecordQuad(rtv, depthOut, owner.blend, depthState, frame.Video, sceneDepth, infoView, width, height);
+
+            using var commands = context.FinishCommandList(false);
+            gpu.Start();
+            owner.immediate.ExecuteCommandList(commands, true);
+            gpu.Stop();
+            LastProblem = null;
+            return true;
+        }
+
+        private bool TryMakeConstants(WallFrame frame, float width, float height, KernelTexture* depth, KernelTexture* info, in Matrix4x4 viewProj, Vector3 cameraPos, float nearPlane, bool useDepth, bool hardware, out Constants c)
+        {
+            c = default;
             var innerHalf = new Vector2(frame.HalfRight.Length(), frame.HalfDown.Length());
             if (innerHalf.X < 1e-3f || innerHalf.Y < 1e-3f)
             {
@@ -369,7 +457,7 @@ public sealed unsafe class WallRenderer : IDisposable
 
             var bezel = innerHalf.X * 2f * BezelFraction;
             var outerHalf = innerHalf + new Vector2(bezel);
-            var c = new Constants
+            c = new Constants
             {
                 ViewProj = viewProj,
                 Center = frame.Center,
@@ -383,58 +471,167 @@ public sealed unsafe class WallRenderer : IDisposable
                 InnerHalf = innerHalf,
                 OuterRadius = bezel * 1.4f,
                 InnerRadius = bezel * 0.35f,
-                UseDepth = sceneDepth != null ? 1f : 0f,
+                UseDepth = useDepth ? 1f : 0f,
                 HideWorldUi = frame.HideWorldUi ? 1f : 0f,
                 Opacity = 1f,
                 TargetSize = new Vector2(width, height),
                 CameraPos = cameraPos,
+                HardwareDepth = hardware ? 1f : 0f,
             };
             if (Matrix4x4.Invert(viewProj, out var inverse))
                 c.InvViewProj = inverse;
-            if (sceneDepth != null)
+            if (useDepth)
             {
-                c.DepthScale = new Vector2((float)depth->ActualWidth / width, (float)depth->ActualHeight / height);
+                c.DepthScale = new Vector2(depth->ActualWidth / width, depth->ActualHeight / height);
                 c.DepthMax = new Vector2(depth->ActualWidth - 1, depth->ActualHeight - 1);
             }
 
-            if (infoView != null)
+            if (info != null)
             {
                 c.UseInfo = 1f;
-                c.DebugView = ShowInfo ? 1f : 0f;
-                c.InfoScale = new Vector2((float)info->ActualWidth / width, (float)info->ActualHeight / height);
+                c.InfoScale = new Vector2(info->ActualWidth / width, info->ActualHeight / height);
                 c.InfoMax = new Vector2(info->ActualWidth - 1, info->ActualHeight - 1);
             }
 
-            if (ShowDepth && sceneDepth != null)
-                c.DebugView = 2f;
+            return true;
+        }
 
+        private void Upload(in Constants c)
+        {
             var box = context.MapSubresource(constants, 0, MapMode.WriteDiscard, SharpDX.Direct3D11.MapFlags.None);
             Marshal.StructureToPtr(c, box.DataPointer, false);
             context.UnmapSubresource(constants, 0);
+        }
 
+        private void RecordQuad(RenderTargetView rtv, DepthStencilView? depthOut, BlendState blend, DepthStencilState depthState, ShaderResourceView? video, ShaderResourceView? sceneDepth, ShaderResourceView? infoView, float width, float height)
+        {
             context.Rasterizer.SetViewport(0, 0, width, height);
             context.Rasterizer.State = owner.rasterizer;
             context.OutputMerger.SetRenderTargets(depthOut, rtv);
-            context.OutputMerger.SetBlendState(owner.blend);
-            context.OutputMerger.SetDepthStencilState(depthOut != null ? owner.writeDepth : owner.noDepth);
+            context.OutputMerger.SetBlendState(blend);
+            context.OutputMerger.SetDepthStencilState(depthState);
             context.InputAssembler.InputLayout = null;
             context.InputAssembler.PrimitiveTopology = PrimitiveTopology.TriangleStrip;
             context.VertexShader.Set(owner.vertexShader);
             context.VertexShader.SetConstantBuffer(0, constants);
             context.PixelShader.Set(owner.pixelShader);
             context.PixelShader.SetConstantBuffer(0, constants);
-            context.PixelShader.SetShaderResource(0, frame.Video);
+            context.PixelShader.SetShaderResource(0, video);
             context.PixelShader.SetShaderResource(1, sceneDepth);
             context.PixelShader.SetShaderResource(2, infoView);
             context.PixelShader.SetSampler(0, owner.sampler);
             context.Draw(4, 0);
+        }
 
-            using var commands = context.FinishCommandList(false);
-            gpu.Start();
-            owner.immediate.ExecuteCommandList(commands, true);
-            gpu.Stop();
-            LastProblem = null;
-            return true;
+        /// <summary>
+        /// The depth self-test (<see cref="DepthLadder"/>): draws the real screen five times, invisibly (no colour, no
+        /// depth written), each inside its own occlusion query, and counts the pixels that survive: with nothing hiding
+        /// it, then for each <see cref="DepthLadder.Variants"/> entry. Runs before our own draw of the frame. Queries are
+        /// issued on the immediate context around small command lists, like <see cref="Diagnostics.GpuStopwatch"/>.
+        /// Any error turns the test off for the session; it never stops the screen.
+        /// </summary>
+        private void RunLadderTest(WallFrame frame, RenderTargetView rtv, KernelTexture* depth, KernelTexture* info, float width, float height, in Matrix4x4 viewProj, Vector3 cameraPos, float nearPlane)
+        {
+            ladderHandledId = frame.TestId;
+            if (LadderBroken)
+                return;
+
+            try
+            {
+                if (depthResource == null || DepthWriteViews() is not { } views)
+                {
+                    LadderResult = new DepthTestResult { Id = frame.TestId, NoResult = true, Note = "no depth views" };
+                    return;
+                }
+
+                ladderQueries ??= Enumerable.Range(0, 1 + DepthLadder.Variants.Length)
+                    .Select(_ => new Query(owner.device, new QueryDescription { Type = QueryType.Occlusion }))
+                    .ToArray();
+                var infoView = InfoView(info);
+
+                // The shader variants read a fresh copy of the scene depth, as the real draw does.
+                context.CopyResource(depthResource, depthCopy);
+                TestDraw(0, frame, rtv, views, null, depth, null, width, height, viewProj, cameraPos, nearPlane, useDepth: false, hardware: false);
+                for (var i = 0; i < DepthLadder.Variants.Length; i++)
+                {
+                    var (mode, useInfo, _) = DepthLadder.Variants[i];
+                    var withInfo = useInfo && infoView != null;
+                    TestDraw(i + 1, frame, rtv, views, withInfo ? infoView : null, depth, withInfo ? info : null, width, height, viewProj, cameraPos, nearPlane,
+                        useDepth: mode == DepthMode.Shader, hardware: mode == DepthMode.Hardware);
+                }
+
+                ladderPendingId = frame.TestId;
+                ladderWaited = 0;
+            }
+            catch (Exception ex)
+            {
+                // Drop anything half-recorded, so it does not end up in our own draw's command list.
+                try
+                {
+                    context.FinishCommandList(false).Dispose();
+                }
+                catch
+                {
+                    // nothing recorded
+                }
+
+                LadderBroken = true;
+                Plugin.Log.Warning(ex, "Wall screen: the depth self-test failed; the screen keeps showing over everything");
+                LadderResult = new DepthTestResult { Id = frame.TestId, NoResult = true, Note = ex.Message };
+            }
+        }
+
+        private void TestDraw(int index, WallFrame frame, RenderTargetView rtv, (ShaderResourceView Read, DepthStencilView Write) views, ShaderResourceView? infoView, KernelTexture* depth, KernelTexture* info, float width, float height, in Matrix4x4 viewProj, Vector3 cameraPos, float nearPlane, bool useDepth, bool hardware)
+        {
+            if (!TryMakeConstants(frame, width, height, depth, info, viewProj, cameraPos, nearPlane, useDepth, hardware, out var c))
+                throw new InvalidOperationException(LastProblem ?? "no constants");
+            Upload(c);
+            RecordQuad(rtv, hardware ? views.Write : null, owner.noColor, hardware ? owner.testDepth : owner.noDepth, frame.Video, useDepth ? views.Read : null, infoView, width, height);
+            using var list = context.FinishCommandList(false);
+            var query = ladderQueries![index];
+            owner.immediate.Begin(query);
+            owner.immediate.ExecuteCommandList(list, true);
+            owner.immediate.End(query);
+        }
+
+        /// <summary>Reads the self-test's queries once the GPU has them (never waits) and hands the result over.</summary>
+        private void ReadLadder()
+        {
+            try
+            {
+                if (ladderQueries == null || ++ladderWaited > 240)
+                {
+                    LadderResult = new DepthTestResult { Id = ladderPendingId, NoResult = true, Note = "queries not ready in time" };
+                    ladderPendingId = 0;
+                    return;
+                }
+
+                var pixels = new long[ladderQueries.Length];
+                for (var i = 0; i < ladderQueries.Length; i++)
+                {
+                    if (!owner.immediate.GetData(ladderQueries[i], AsynchronousFlags.DoNotFlush, out long value))
+                        return;
+                    pixels[i] = value;
+                }
+
+                var total = pixels[0];
+                var visible = new double[DepthLadder.Variants.Length];
+                for (var i = 0; i < visible.Length; i++)
+                {
+                    var forcedFail = LadderFail.Contains(DepthLadder.Variants[i].Mode == DepthMode.Shader ? "shader" : "hardware", StringComparison.Ordinal);
+                    visible[i] = total > 0 && !forcedFail ? Math.Min(1.0, (double)pixels[i + 1] / total) : 0;
+                }
+
+                LadderResult = new DepthTestResult { Id = ladderPendingId, Total = total, Visible = visible };
+                ladderPendingId = 0;
+            }
+            catch (Exception ex)
+            {
+                LadderBroken = true;
+                Plugin.Log.Warning(ex, "Wall screen: reading the depth self-test failed; the screen keeps showing over everything");
+                LadderResult = new DepthTestResult { Id = ladderPendingId, NoResult = true, Note = ex.Message };
+                ladderPendingId = 0;
+            }
         }
 
         /// <summary>
@@ -627,6 +824,12 @@ public sealed unsafe class WallRenderer : IDisposable
 
         public void Dispose()
         {
+            if (ladderQueries != null)
+            {
+                foreach (var query in ladderQueries)
+                    query.Dispose();
+            }
+
             DropProbe();
             targetView?.Dispose();
             DropDepth();

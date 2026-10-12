@@ -27,8 +27,14 @@ public sealed unsafe class ScreenRenderer : IDisposable
     /// <summary>Debug (/matinee rdebug overlay): draw with the overlay instead of in-world.</summary>
     public static bool ForceOverlay;
 
-    /// <summary>Debug (/matinee rdebug over): draw over everything, as on AMD and Intel cards, without changing settings.</summary>
+    /// <summary>Debug (/matinee rdebug over): draw over everything, without changing settings.</summary>
     public static bool ForceOverEverything;
+
+    /// <summary>Debug (/matinee rdebug ladder): run the depth self-test as on AMD and Intel cards, on any card.</summary>
+    public static bool DebugLadder;
+
+    /// <summary>Debug (/matinee rdebug mode …): draw with this depth mode, on any card.</summary>
+    public static DepthMode? DebugMode;
 
     /// <summary>Missed in-world frames in a row before the overlay steps in.</summary>
     private const int MissesBeforeOverlay = 3;
@@ -49,6 +55,9 @@ public sealed unsafe class ScreenRenderer : IDisposable
     private nint videoPointer;
     private ShaderResourceView? videoView;
     private long drawFrames;
+    private readonly DepthLadder ladder = new();
+    private DepthMode lastMode;
+    private bool lastSceneInfo;
 
     public ScreenRenderer(Configuration config, IClientState client, IGameGui gameGui)
     {
@@ -75,6 +84,19 @@ public sealed unsafe class ScreenRenderer : IDisposable
     /// unknown cards. On AMD and Intel it has not been verified, and hid the whole screen on an AMD Radeon RX 9070 XT.
     /// </summary>
     public bool DepthTestSupported => wall?.GpuVendorId is not (0x1002 or 0x8086);
+
+    /// <summary>
+    /// The depth self-test decides how the screen hides behind people and furniture: AMD and Intel cards outside
+    /// experimental mode (or any card with /matinee rdebug ladder).
+    /// </summary>
+    public bool LadderApplies => DebugLadder || (!DepthTestSupported && !config.ExperimentalDepth);
+
+    /// <summary>Starts the depth self-test over (debug).</summary>
+    public void ResetLadder()
+    {
+        ladder.Reset();
+        WallRenderer.Pass.LadderBroken = false;
+    }
 
     /// <summary>The depth settings are offered: a supported card, or experimental mode.</summary>
     public bool DepthControlsVisible => DepthTestSupported || config.ExperimentalDepth;
@@ -106,6 +128,7 @@ public sealed unsafe class ScreenRenderer : IDisposable
     /// <summary>Counters for /matinee rstat.</summary>
     public string Stats() =>
         $"tier {Active} · {Describe()} · willDraw {WillDraw} · behindUi {config.DrawBehindGameUi} · " +
+        $"depth {lastMode}{(lastSceneInfo ? "" : " without scene info")}{(LadderApplies ? $" · self-test: {ladder.Status}" : "")} · " +
         (injector == null ? "no in-world hook" : $"GPU {injector.TakeGpuMilliseconds():0.000} ms/frame · rendered {injector.RenderFrames} · drawn {injector.Drawn} · stale {injector.Stale} · missed {injector.Missed} · failed {injector.Failed} · faulted {injector.Faulted} · framework ticks during render {FrameworkOverlaps}/{FrameworkTicks} · last miss: {injector.LastMiss} · depth: {injector.DepthInfo}");
 
     public long FrameworkTicks;
@@ -158,6 +181,9 @@ public sealed unsafe class ScreenRenderer : IDisposable
             return;
         }
 
+        var (mode, sceneInfo, testId) = ChooseDepth(center);
+        lastMode = mode;
+        lastSceneInfo = sceneInfo;
         var frame = new WallFrame
         {
             Center = center,
@@ -165,7 +191,9 @@ public sealed unsafe class ScreenRenderer : IDisposable
             HalfDown = down * 0.5f,
             CoverDepth = Math.Clamp(config.ScreenCoverDepth, 0f, 2f),
             HideWorldUi = config.HideWorldUiOnScreen,
-            IgnoreDepth = ShowOverEverything,
+            Mode = mode,
+            UseSceneInfo = sceneInfo,
+            TestId = testId,
             Video = VideoView(texture),
             Stamp = injector?.RenderFrames ?? 0,
         };
@@ -186,6 +214,26 @@ public sealed unsafe class ScreenRenderer : IDisposable
 
         Active = Tier.Overlay;
         DrawOverlay(frame);
+    }
+
+    /// <summary>
+    /// How people and furniture hide the screen this frame. NVIDIA and unknown cards: the shader reads the depth, or
+    /// nothing hides the screen if the player chose that. AMD and Intel: what the depth self-test kept, over
+    /// everything until then.
+    /// </summary>
+    private (DepthMode Mode, bool SceneInfo, long TestId) ChooseDepth(Vector3 center)
+    {
+        if (DebugMode is { } forced)
+            return (forced, true, 0);
+        if (ForceOverEverything)
+            return (DepthMode.None, true, 0);
+        if (LadderApplies)
+        {
+            var testId = injector is { Faulted: false } ? ladder.Tick(gameGui.WorldToScreen(center, out _)) : 0;
+            return ladder.Kept is { } kept ? (kept.Mode, kept.UseSceneInfo, testId) : (DepthMode.None, true, testId);
+        }
+
+        return (ShowOverEverything ? DepthMode.None : DepthMode.Shader, true, 0);
     }
 
     /// <summary>Draws nothing this frame.</summary>

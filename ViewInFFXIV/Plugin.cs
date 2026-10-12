@@ -493,6 +493,26 @@ public sealed class Plugin : IDalamudPlugin
                     ScreenRenderer.ForceOverlay = !ScreenRenderer.ForceOverlay;
                 else if (rest == "over")
                     ScreenRenderer.ForceOverEverything = !ScreenRenderer.ForceOverEverything;
+                else if (rest == "ladder")
+                {
+                    ScreenRenderer.DebugLadder = !ScreenRenderer.DebugLadder;
+                    Renderer.ResetLadder();
+                }
+                else if (rest.StartsWith("mode", StringComparison.Ordinal))
+                {
+                    ScreenRenderer.DebugMode = rest[4..].Trim() switch
+                    {
+                        "shader" => DepthMode.Shader,
+                        "hardware" => DepthMode.Hardware,
+                        "none" => DepthMode.None,
+                        _ => null,
+                    };
+                }
+                else if (rest.StartsWith("fail", StringComparison.Ordinal))
+                {
+                    WallRenderer.Pass.LadderFail = rest[4..].Trim();
+                    Renderer.ResetLadder();
+                }
                 else if (rest == "info")
                     WallRenderer.Pass.ShowInfo = !WallRenderer.Pass.ShowInfo;
                 else if (rest == "nocopy")
@@ -501,7 +521,7 @@ public sealed class Plugin : IDalamudPlugin
                     WallRenderer.Pass.ShowDepth = !WallRenderer.Pass.ShowDepth;
                 else
                     WallRenderer.Pass.IgnoreDepth = !WallRenderer.Pass.IgnoreDepth;
-                ChatGui.Print($"Wall screen debug: ignore depth {WallRenderer.Pass.IgnoreDepth} · show scene info {WallRenderer.Pass.ShowInfo} · show depth {WallRenderer.Pass.ShowDepth} · no depth copy {WallRenderer.Pass.NoDepthCopy} · force overlay {ScreenRenderer.ForceOverlay} · over everything {ScreenRenderer.ForceOverEverything}", ChatPrefix);
+                ChatGui.Print($"Wall screen debug: ignore depth {WallRenderer.Pass.IgnoreDepth} · show scene info {WallRenderer.Pass.ShowInfo} · show depth {WallRenderer.Pass.ShowDepth} · no depth copy {WallRenderer.Pass.NoDepthCopy} · force overlay {ScreenRenderer.ForceOverlay} · over everything {ScreenRenderer.ForceOverEverything} · self-test on any card {ScreenRenderer.DebugLadder} · mode {ScreenRenderer.DebugMode?.ToString() ?? "auto"} · fail {(WallRenderer.Pass.LadderFail.Length > 0 ? WallRenderer.Pass.LadderFail : "none")}", ChatPrefix);
                 break;
             case "experimental":
                 Configuration.ExperimentalDepth = rest switch { "on" => true, "off" => false, _ => !Configuration.ExperimentalDepth };

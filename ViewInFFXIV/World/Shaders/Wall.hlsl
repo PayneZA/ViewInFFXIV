@@ -22,6 +22,7 @@ cbuffer Wall : register(b0)
     row_major float4x4 invViewProj;
     float2 targetSize;  float2 padding2;
     float3 cameraPos;   float padding3;
+    float hardwareDepth; float3 padding4; // 1: the GPU's depth test hides the screen (DepthMode.Hardware)
 };
 
 Texture2D<float4> video : register(t0);
@@ -181,7 +182,10 @@ PSOut ps(VSOut i)
     // Hiding name plates and markers over the screen: the nearest depth, so nothing the game draws afterwards with
     // depth testing (its name plate pass) shows on it. Otherwise the screen behaves like a real object.
     // GAME ASSUMPTION A8: name plates and housing markers are depth-tested; chat bubbles and the HUD are not.
-    o.depth = hideWorldUi > 0.5 ? 1.0 : coverDepth(i, worldTolerance);
+    // Hardware depth: the GPU's depth test decides what hides the screen, against this very depth, so it must be the
+    // cover-shifted one (strict for people) whatever the name-plate setting says; 1.0 would never hide behind anything.
+    o.depth = hardwareDepth > 0.5 ? coverDepth(i, toleranceAt(i.pos.xy))
+        : hideWorldUi > 0.5 ? 1.0 : coverDepth(i, worldTolerance);
     return o;
 }
 

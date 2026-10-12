@@ -255,14 +255,30 @@ None of these change saved settings; everything resets when the plugin reloads.
 | `/matinee rdebug` | Toggle: ignore scene depth (is it the depth test or the draw?) |
 | `/matinee rdebug info` | Toggle: paint what the depth test thinks is behind the screen (A7) |
 | `/matinee rdebug overlay` | Toggle: force the overlay tier (A10) |
-| `/matinee rdebug over` | Toggle: draw over everything (no depth read, depth still written), as on AMD and Intel cards |
+| `/matinee rdebug over` | Toggle: draw over everything (no depth read, depth still written) |
+| `/matinee rdebug ladder` | Toggle: run the depth self-test on any card, as on AMD and Intel (starts it over) |
+| `/matinee rdebug mode shader\|hardware\|none` | Force the depth mode on any card; `mode` alone goes back to automatic |
+| `/matinee rdebug fail shader\|hardware\|shader hardware` | Make the self-test report those variants hidden (starts it over); `fail` alone clears it |
 
-### Graphics card gating (`ScreenRenderer.DepthTestSupported`)
+### Graphics card gating and the depth self-test (`ScreenRenderer.DepthTestSupported`, `World/DepthLadder.cs`)
 
-The depth test (people and furniture hiding the screen, name plates behind it) is verified on NVIDIA only. On an AMD
-Radeon RX 9070 XT it hid the whole screen in the world (drawn every frame, nothing visible; ignoring depth showed it).
-So on AMD (vendor 0x1002) and Intel (0x8086) cards the screen is always drawn over everything and the depth settings
-(cover distance, name-plate hiding, the "over everything" box) are hidden. "Over everything" only skips the depth
+The shader depth read (people and furniture hiding the screen) is verified on NVIDIA only. On an AMD Radeon RX 9070 XT
+it hid the whole screen in the world (drawn every frame, nothing visible; ignoring depth showed it). So on AMD (vendor
+0x1002) and Intel (0x8086) cards the depth settings (cover distance, name-plate hiding, the "over everything" box) are
+hidden, and the machine finds out by itself how the screen can hide behind things:
+
+- The screen starts over everything (`DepthMode.None`).
+- Once a second while it is in view, the render thread draws the real screen five times, invisibly, each inside an
+  occlusion query, before our own draw writes any depth: with nothing hiding it, then for each variant in
+  `DepthLadder.Variants`: the shader read, then the **hardware** depth test (`DepthMode.Hardware`, the GPU's own
+  `GreaterEqual` test against the scene depth with the cover-shifted depth from the shader; no shader depth read at
+  all), each with and without G-buffer 3.
+- A variant that shows at least 75% of the screen in 3 tests of at least 2000 pixels is kept for the session, best
+  first. It never demotes (a wall can hide the screen for real). Any error turns the test off and leaves the screen
+  over everything; it never faults the in-world tier, whose fallback would cover chat bubbles.
+- With the hardware variant, the name plates of people in front of the screen show over it (it cannot write the
+  nearest depth everywhere and still be hidden by them).
+- Results go to the Dalamud log ("Wall screen depth self-test: …") and `/matinee rstat`. "Over everything" only skips the depth
 *read*: the screen still writes its depth, so name plates and housing markers behind it stay hidden (writing depth was
 seen working on the failing card). `/matinee rdebug over` previews this mode on any card. `/matinee experimental [on|off]` turns the
 depth test and its settings back on, saved across restarts (`Configuration.ExperimentalDepth`). Unknown vendors count as
