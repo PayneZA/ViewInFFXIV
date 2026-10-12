@@ -255,13 +255,16 @@ None of these change saved settings; everything resets when the plugin reloads.
 | `/matinee rdebug` | Toggle: ignore scene depth (is it the depth test or the draw?) |
 | `/matinee rdebug info` | Toggle: paint what the depth test thinks is behind the screen (A7) |
 | `/matinee rdebug overlay` | Toggle: force the overlay tier (A10) |
+| `/matinee rdebug over` | Toggle: draw over everything (no depth read, depth still written), as on AMD and Intel cards |
 
 ### Graphics card gating (`ScreenRenderer.DepthTestSupported`)
 
 The depth test (people and furniture hiding the screen, name plates behind it) is verified on NVIDIA only. On an AMD
 Radeon RX 9070 XT it hid the whole screen in the world (drawn every frame, nothing visible; ignoring depth showed it).
 So on AMD (vendor 0x1002) and Intel (0x8086) cards the screen is always drawn over everything and the depth settings
-(cover distance, name-plate hiding, the "over everything" box) are hidden. `/matinee experimental [on|off]` turns the
+(cover distance, name-plate hiding, the "over everything" box) are hidden. "Over everything" only skips the depth
+*read*: the screen still writes its depth, so name plates and housing markers behind it stay hidden (writing depth was
+seen working on the failing card). `/matinee rdebug over` previews this mode on any card. `/matinee experimental [on|off]` turns the
 depth test and its settings back on, saved across restarts (`Configuration.ExperimentalDepth`). Unknown vendors count as
 supported. `/matinee rprobe` reads the scene depth and our copy of it as plain numbers (same two lines in chat on every
 card) and is the tool to find out what differs on the failing card; remove the gate once that is fixed and verified.

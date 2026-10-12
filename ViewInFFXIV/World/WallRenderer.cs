@@ -345,6 +345,13 @@ public sealed unsafe class WallRenderer : IDisposable
                 sceneDepth = views.Read;
                 depthOut = views.Write;
             }
+            else if (frame.IgnoreDepth && !IgnoreDepth && writeDepth && liveDepth != null && DepthWriteViews() is { } writeOnly)
+            {
+                // Over everything: nothing hides the screen (the depth read is what fails on some cards), but the
+                // screen still writes its depth, so name plates and housing markers behind it stay hidden. Writing
+                // depth was seen working on the card whose read fails (the depth debug view drew with it bound).
+                depthOut = writeOnly.Write;
+            }
 
             if (ProbeArmed && probeStage == null)
                 StartProbe(frame, target, depth, viewProj, nearPlane);

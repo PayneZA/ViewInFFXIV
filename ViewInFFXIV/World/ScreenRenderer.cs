@@ -27,6 +27,9 @@ public sealed unsafe class ScreenRenderer : IDisposable
     /// <summary>Debug (/matinee rdebug overlay): draw with the overlay instead of in-world.</summary>
     public static bool ForceOverlay;
 
+    /// <summary>Debug (/matinee rdebug over): draw over everything, as on AMD and Intel cards, without changing settings.</summary>
+    public static bool ForceOverEverything;
+
     /// <summary>Missed in-world frames in a row before the overlay steps in.</summary>
     private const int MissesBeforeOverlay = 3;
 
@@ -80,7 +83,7 @@ public sealed unsafe class ScreenRenderer : IDisposable
     /// The screen shows over everything instead of hiding behind people and furniture. Forced on where the depth test
     /// is not supported; otherwise the player's choice (version 5.5.0.3's checkbox counts when it was ticked).
     /// </summary>
-    public bool ShowOverEverything => !DepthControlsVisible || (config.ScreenOverEverything ?? (DepthTestSupported && config.IgnoreSceneDepth));
+    public bool ShowOverEverything => ForceOverEverything || !DepthControlsVisible || (config.ScreenOverEverything ?? (DepthTestSupported && config.IgnoreSceneDepth));
 
     /// <summary>How the screen was shown on the last frame.</summary>
     public Tier Active { get; private set; }

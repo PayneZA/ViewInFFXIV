@@ -491,6 +491,8 @@ public sealed class Plugin : IDalamudPlugin
             case "rdebug":
                 if (rest == "overlay")
                     ScreenRenderer.ForceOverlay = !ScreenRenderer.ForceOverlay;
+                else if (rest == "over")
+                    ScreenRenderer.ForceOverEverything = !ScreenRenderer.ForceOverEverything;
                 else if (rest == "info")
                     WallRenderer.Pass.ShowInfo = !WallRenderer.Pass.ShowInfo;
                 else if (rest == "nocopy")
@@ -499,7 +501,7 @@ public sealed class Plugin : IDalamudPlugin
                     WallRenderer.Pass.ShowDepth = !WallRenderer.Pass.ShowDepth;
                 else
                     WallRenderer.Pass.IgnoreDepth = !WallRenderer.Pass.IgnoreDepth;
-                ChatGui.Print($"Wall screen debug: ignore depth {WallRenderer.Pass.IgnoreDepth} · show scene info {WallRenderer.Pass.ShowInfo} · show depth {WallRenderer.Pass.ShowDepth} · no depth copy {WallRenderer.Pass.NoDepthCopy} · force overlay {ScreenRenderer.ForceOverlay}", ChatPrefix);
+                ChatGui.Print($"Wall screen debug: ignore depth {WallRenderer.Pass.IgnoreDepth} · show scene info {WallRenderer.Pass.ShowInfo} · show depth {WallRenderer.Pass.ShowDepth} · no depth copy {WallRenderer.Pass.NoDepthCopy} · force overlay {ScreenRenderer.ForceOverlay} · over everything {ScreenRenderer.ForceOverEverything}", ChatPrefix);
                 break;
             case "experimental":
                 Configuration.ExperimentalDepth = rest switch { "on" => true, "off" => false, _ => !Configuration.ExperimentalDepth };

@@ -829,7 +829,6 @@ public sealed partial class MainWindow : Window, IDisposable
             ImGui.Indent();
             if (depthControls)
             {
-                ImGui.BeginDisabled(overEverything);
                 var hideWorldUi = config.HideWorldUiOnScreen;
                 if (ImGui.Checkbox("Hide name plates and item markers over the screen", ref hideWorldUi))
                 {
@@ -837,7 +836,6 @@ public sealed partial class MainWindow : Window, IDisposable
                     config.Save();
                 }
 
-                ImGui.EndDisabled();
             }
 
             Ui.Dim("Chat bubbles and the HUD stay on top either way.");
@@ -864,7 +862,7 @@ public sealed partial class MainWindow : Window, IDisposable
             config.Save();
         }
 
-        Ui.Dim("Use this if the screen is invisible in the world but shows when you open it as a window. People, furniture and name plates then show over the screen instead of hiding it, and the two settings above stop applying.");
+        Ui.Dim("Use this if the screen is invisible in the world but shows when you open it as a window. People and furniture then show behind the screen instead of in front of it, and the furniture setting above stops applying; name plates and item markers stay hidden over it.");
         if (config.ExperimentalDepth)
             Ui.Dim("Experimental mode is on. /matinee experimental off goes back.");
     }
