@@ -817,6 +817,7 @@ public sealed partial class MainWindow : Window, IDisposable
     {
         var depthControls = plugin.Renderer.DepthControlsVisible;
         var overEverything = plugin.Renderer.ShowOverEverything;
+        var hardwareDepth = plugin.Renderer.CurrentMode == World.DepthMode.Hardware;
         var behind = config.DrawBehindGameUi;
         if (ImGui.Checkbox("Keep chat bubbles, name plates and the HUD on top of the screen", ref behind))
         {
@@ -827,17 +828,17 @@ public sealed partial class MainWindow : Window, IDisposable
         if (config.DrawBehindGameUi)
         {
             ImGui.Indent();
-            if (depthControls)
+            ImGui.BeginDisabled(hardwareDepth);
+            var hideWorldUi = config.HideWorldUiOnScreen;
+            if (ImGui.Checkbox("Hide name plates and item markers over the screen", ref hideWorldUi))
             {
-                var hideWorldUi = config.HideWorldUiOnScreen;
-                if (ImGui.Checkbox("Hide name plates and item markers over the screen", ref hideWorldUi))
-                {
-                    config.HideWorldUiOnScreen = hideWorldUi;
-                    config.Save();
-                }
-
+                config.HideWorldUiOnScreen = hideWorldUi;
+                config.Save();
             }
 
+            ImGui.EndDisabled();
+            if (hardwareDepth)
+                Ui.Dim("On this graphics card, name plates of people in front of the screen show over it; the ones behind it stay hidden.");
             Ui.Dim("Chat bubbles and the HUD stay on top either way.");
             ImGui.Unindent();
         }

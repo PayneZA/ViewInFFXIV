@@ -256,7 +256,7 @@ None of these change saved settings; everything resets when the plugin reloads.
 | `/matinee rdebug info` | Toggle: paint what the depth test thinks is behind the screen (A7) |
 | `/matinee rdebug overlay` | Toggle: force the overlay tier (A10) |
 | `/matinee rdebug over` | Toggle: draw over everything (no depth read, depth still written) |
-| `/matinee rdebug ladder` | Toggle: run the depth self-test on any card, as on AMD and Intel (starts it over) |
+| `/matinee rdebug ladder` | Toggle: treat this card as AMD/Intel (self-test and settings), on any card; starts the test over |
 | `/matinee rdebug mode shader\|hardware\|none` | Force the depth mode on any card; `mode` alone goes back to automatic |
 | `/matinee rdebug fail shader\|hardware\|shader hardware` | Make the self-test report those variants hidden (starts it over); `fail` alone clears it |
 
@@ -264,8 +264,10 @@ None of these change saved settings; everything resets when the plugin reloads.
 
 The shader depth read (people and furniture hiding the screen) is verified on NVIDIA only. On an AMD Radeon RX 9070 XT
 it hid the whole screen in the world (drawn every frame, nothing visible; ignoring depth showed it). So on AMD (vendor
-0x1002) and Intel (0x8086) cards the depth settings (cover distance, name-plate hiding, the "over everything" box) are
-hidden, and the machine finds out by itself how the screen can hide behind things:
+0x1002) and Intel (0x8086) cards the machine finds out by itself how the screen can hide behind things, and the
+settings follow what works there: the name-plate box is always shown (greyed out in hardware mode, where it cannot
+apply); the cover distance and the "over everything" box appear once the self-test has kept a mode (and the self-test's
+mode then gives way to "over everything" if the player ticks it).
 
 - The screen starts over everything (`DepthMode.None`).
 - Once a second while it is in view, the render thread draws the real screen five times, invisibly, each inside an

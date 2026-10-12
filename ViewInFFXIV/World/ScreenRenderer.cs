@@ -83,7 +83,7 @@ public sealed unsafe class ScreenRenderer : IDisposable
     /// The depth test (people and furniture hiding the screen, name plates behind it) is known to work: NVIDIA and
     /// unknown cards. On AMD and Intel it has not been verified, and hid the whole screen on an AMD Radeon RX 9070 XT.
     /// </summary>
-    public bool DepthTestSupported => wall?.GpuVendorId is not (0x1002 or 0x8086);
+    public bool DepthTestSupported => !DebugLadder && wall?.GpuVendorId is not (0x1002 or 0x8086);
 
     /// <summary>
     /// The depth self-test decides how the screen hides behind people and furniture: AMD and Intel cards outside
@@ -98,8 +98,14 @@ public sealed unsafe class ScreenRenderer : IDisposable
         WallRenderer.Pass.LadderBroken = false;
     }
 
-    /// <summary>The depth settings are offered: a supported card, or experimental mode.</summary>
-    public bool DepthControlsVisible => DepthTestSupported || config.ExperimentalDepth;
+    /// <summary>
+    /// The depth settings (cover distance, "over everything") are offered: a supported card, experimental mode, or
+    /// once the self-test found a way for this machine to hide the screen behind people and furniture.
+    /// </summary>
+    public bool DepthControlsVisible => DepthTestSupported || config.ExperimentalDepth || (LadderApplies && ladder.Kept != null);
+
+    /// <summary>How the screen hid behind things on the last frame it was drawn.</summary>
+    public DepthMode CurrentMode => lastMode;
 
     /// <summary>
     /// The screen shows over everything instead of hiding behind people and furniture. Forced on where the depth test
@@ -230,7 +236,9 @@ public sealed unsafe class ScreenRenderer : IDisposable
         if (LadderApplies)
         {
             var testId = injector is { Faulted: false } ? ladder.Tick(gameGui.WorldToScreen(center, out _)) : 0;
-            return ladder.Kept is { } kept ? (kept.Mode, kept.UseSceneInfo, testId) : (DepthMode.None, true, testId);
+            if (ladder.Kept is not { } kept)
+                return (DepthMode.None, true, testId);
+            return (ShowOverEverything ? DepthMode.None : kept.Mode, kept.UseSceneInfo, testId);
         }
 
         return (ShowOverEverything ? DepthMode.None : DepthMode.Shader, true, 0);
