@@ -58,28 +58,22 @@ public sealed unsafe class RenderTrace : IDisposable
     private int eventCount;
     private int frame;
     private nint lastTarget0;
-    private int disposeCountdown;
 
-    public bool Busy => state != 0 || setTargetHook != null;
+    public bool Busy => state != 0;
 
     public void Start()
     {
         if (Busy)
             return;
 
+        // The hooks are made once and then only switched on and off; they live until the plugin unloads. Disposing
+        // them after each trace crashed the game once (NullReferenceException inside the frame, on the second trace):
+        // these functions are also hooked by FrameInjector, and a render-thread call could still reach a detour whose
+        // hook had been set to null.
         try
         {
-            setTargetHook = Plugin.GameInterop.HookFromAddress<SetTargetDelegate>(
-                ImmediateContext.Addresses.DoSetTargetCommand.Value, SetTargetDetour);
-            processHook = Plugin.GameInterop.HookFromAddress<ProcessCommandsDelegate>(
-                ImmediateContext.Addresses.ProcessCommands.Value, ProcessDetour);
-
-            // ID3D11DeviceContext vtable: 12 DrawIndexed, 13 Draw, 20 DrawIndexedInstanced, 21 DrawInstanced.
-            var vtable = *(nint**)Device.Instance()->D3D11DeviceContext;
-            drawIndexedHook = Plugin.GameInterop.HookFromAddress<DrawIndexedDelegate>(vtable[12], DrawIndexedDetour);
-            drawHook = Plugin.GameInterop.HookFromAddress<DrawDelegate>(vtable[13], DrawDetour);
-            drawIndexedInstancedHook = Plugin.GameInterop.HookFromAddress<DrawIndexedInstancedDelegate>(vtable[20], DrawIndexedInstancedDetour);
-            drawInstancedHook = Plugin.GameInterop.HookFromAddress<DrawInstancedDelegate>(vtable[21], DrawInstancedDetour);
+            if (setTargetHook == null)
+                CreateHooks();
         }
         catch (Exception ex)
         {
@@ -93,17 +87,32 @@ public sealed unsafe class RenderTrace : IDisposable
         eventCount = 0;
         frame = 0;
         lastTarget0 = 0;
-        state = 1;
         lastSetTarget = -1;
         drawsInBlock = 0;
         renderThread = 0;
-        setTargetHook.Enable();
-        processHook.Enable();
+        state = 1;
+        setTargetHook!.Enable();
+        processHook!.Enable();
         drawIndexedHook!.Enable();
         drawHook!.Enable();
         drawIndexedInstancedHook!.Enable();
         drawInstancedHook!.Enable();
         Plugin.ChatGui.Print("Render trace: capturing 3 frames…", "Matinee");
+    }
+
+    private void CreateHooks()
+    {
+        setTargetHook = Plugin.GameInterop.HookFromAddress<SetTargetDelegate>(
+            ImmediateContext.Addresses.DoSetTargetCommand.Value, SetTargetDetour);
+        processHook = Plugin.GameInterop.HookFromAddress<ProcessCommandsDelegate>(
+            ImmediateContext.Addresses.ProcessCommands.Value, ProcessDetour);
+
+        // ID3D11DeviceContext vtable: 12 DrawIndexed, 13 Draw, 20 DrawIndexedInstanced, 21 DrawInstanced.
+        var vtable = *(nint**)Device.Instance()->D3D11DeviceContext;
+        drawIndexedHook = Plugin.GameInterop.HookFromAddress<DrawIndexedDelegate>(vtable[12], DrawIndexedDetour);
+        drawHook = Plugin.GameInterop.HookFromAddress<DrawDelegate>(vtable[13], DrawDetour);
+        drawIndexedInstancedHook = Plugin.GameInterop.HookFromAddress<DrawIndexedInstancedDelegate>(vtable[20], DrawIndexedInstancedDetour);
+        drawInstancedHook = Plugin.GameInterop.HookFromAddress<DrawInstancedDelegate>(vtable[21], DrawInstancedDetour);
     }
 
     /// <summary>Call from UiBuilder.Draw (inside the game's Present). Only a marker: Draw does not run while the UI is hidden.</summary>
@@ -126,12 +135,7 @@ public sealed unsafe class RenderTrace : IDisposable
             drawIndexedInstancedHook?.Disable();
             drawInstancedHook?.Disable();
             WriteReport();
-            disposeCountdown = 10; // let any render-thread call still inside a detour return first
-            return;
         }
-
-        if (disposeCountdown > 0 && --disposeCountdown == 0)
-            DisposeHooks();
     }
 
     public void Dispose()

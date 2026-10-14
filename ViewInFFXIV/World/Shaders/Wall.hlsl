@@ -34,6 +34,11 @@ SamplerState videoSampler : register(s0);
 // Slightly larger than the screen so the outer edge can fade over a pixel instead of being cut by the raster.
 static const float Margin = 1.02;
 
+// The nearest depth the screen ever writes: something half a metre from the camera. Nearer than any name plate, so it
+// still hides them all, yet an ordinary scene depth. Writing exactly 1.0 (the near plane) made the whole screen vanish
+// on some players' setups, presumably a later pass that treats that value specially.
+static const float NearestDistance = 0.5;
+
 struct VSOut
 {
     float4 pos : SV_Position;
@@ -123,6 +128,11 @@ float3 screenOff(float2 uv)
 // The depth the screen writes (when it writes depth): pulled toward the camera by the cover distance along the
 // screen's facing direction, so what the screen covers (furniture in front of it, and the markers over that
 // furniture) stays behind it for everything the game draws afterwards with depth testing.
+float nearestDepth()
+{
+    return saturate(nearPlane / NearestDistance); // reverse-Z with an infinite far plane: depth = near / distance
+}
+
 float coverDepth(VSOut i, float distance)
 {
     float3 normal = normalize(cross(axisRight, axisDown));
@@ -130,7 +140,7 @@ float coverDepth(VSOut i, float distance)
         normal = -normal;
     float4 clip = mul(float4(i.world + normal * distance, 1.0), viewProj);
     // Pulled past the camera: everything in front of the screen is covered.
-    return clip.w > nearPlane ? saturate(clip.z / clip.w) : 1.0;
+    return clip.w > nearPlane ? min(saturate(clip.z / clip.w), nearestDepth()) : nearestDepth();
 }
 
 PSOut ps(VSOut i)
@@ -185,7 +195,7 @@ PSOut ps(VSOut i)
     // Hardware depth: the GPU's depth test decides what hides the screen, against this very depth, so it must be the
     // cover-shifted one (strict for people) whatever the name-plate setting says; 1.0 would never hide behind anything.
     o.depth = hardwareDepth > 0.5 ? coverDepth(i, toleranceAt(i.pos.xy))
-        : hideWorldUi > 0.5 ? 1.0 : coverDepth(i, worldTolerance);
+        : hideWorldUi > 0.5 ? nearestDepth() : coverDepth(i, worldTolerance);
     return o;
 }
 
