@@ -840,6 +840,8 @@ public sealed partial class MainWindow : Window, IDisposable
             if (hardwareDepth)
                 Ui.Dim("On this graphics card, name plates of people in front of the screen show over it; the ones behind it stay hidden.");
             Ui.Dim("Chat bubbles and the HUD stay on top either way.");
+            if (!hardwareDepth)
+                Ui.Dim("This may not work with every graphics setup: if the screen is invisible in the world but shows when you open it as a window, untick this first.");
             ImGui.Unindent();
         }
 

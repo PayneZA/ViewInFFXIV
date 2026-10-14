@@ -41,7 +41,7 @@ Settings that affect the renderer (`Configuration.cs`, shown under Settings → 
 | Setting | Effect |
 |---|---|
 | `DrawBehindGameUi` ("Keep chat bubbles, name plates and the HUD on top") | on = in-world tier; off = overlay tier |
-| `HideWorldUiOnScreen` ("Hide name plates and item markers over the screen") | on = the screen writes the nearest depth, so no depth-tested UI shows over it |
+| `HideWorldUiOnScreen` ("Hide name plates and item markers over the screen") | on = the screen writes the nearest depth, so no depth-tested UI shows over it. On one player's setup this hid the whole screen (5.5.0.10 changed the depth written; not yet confirmed fixed), so the settings tell players to untick it first if the screen is invisible in the world |
 | `ScreenCoverDepth` ("Covers furniture up to N cm") | scenery this close in front of the screen does not hide it (screens set into walls, over furniture) |
 | `KeepScreenWhenUiHidden` | Dalamud keeps calling Draw while the UI is hidden; otherwise the published frame goes stale and the in-world draw stops on its own |
 
