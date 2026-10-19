@@ -44,6 +44,7 @@ public sealed partial class MainWindow : Window, IDisposable
 
     private string joinInput = "";
     private string searchInput = "";
+    private float searchButtonsWidth = 90f;
     private volatile List<VideoInfo>? results;
     private volatile string? searchError;
     private volatile bool searching;
@@ -195,6 +196,15 @@ public sealed partial class MainWindow : Window, IDisposable
             ImGui.PopStyleColor();
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip(remoteShown ? "Hide the mini remote" : "Show the mini remote: small controls you can drag anywhere");
+
+        // The other TV sources, up here during a party so the search row keeps its room.
+        if (room && !twitch)
+        {
+            ImGui.SameLine();
+            DrawTwitchPopupButton();
+            ImGui.SameLine();
+            DrawWindowPopupButton();
+        }
 
         if (!room)
         {
@@ -493,9 +503,10 @@ public sealed partial class MainWindow : Window, IDisposable
     {
         ImGui.Spacing();
         var width = ImGui.GetContentRegionAvail().X;
-        ImGui.SetNextItemWidth(width - 44 - 36 - 36 - 36);
+        ImGui.SetNextItemWidth(MathF.Max(80, width - searchButtonsWidth));
         var enter = ImGui.InputTextWithHint("##search", "Search YouTube or paste a link…", ref searchInput, 512, ImGuiInputTextFlags.EnterReturnsTrue);
         var queueIt = enter && ImGui.GetIO().KeyShift;
+        var boxEnd = ImGui.GetItemRectMax().X;
         ImGui.SameLine();
         if (ImGuiComponents.IconButton("##go", FontAwesomeIcon.Search) || (enter && !queueIt))
             Submit(searchInput.Trim());
@@ -504,10 +515,9 @@ public sealed partial class MainWindow : Window, IDisposable
             QueueLink(searchInput.Trim());
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Add the pasted YouTube link to Up next\n(or press Shift+Enter)");
-        ImGui.SameLine();
-        DrawTwitchPopupButton();
-        ImGui.SameLine();
-        DrawWindowPopupButton();
+
+        // The buttons' real width (font and scale vary), used for the box next frame.
+        searchButtonsWidth = ImGui.GetItemRectMax().X - boxEnd;
     }
 
     private void QueueLink(string text)
@@ -866,6 +876,17 @@ public sealed partial class MainWindow : Window, IDisposable
                 Ui.Dim("This may not work with every graphics setup: if the screen is invisible in the world but shows when you open it as a window, untick this first.");
             ImGui.Unindent();
         }
+
+        var hideWhileWatching = config.HideNamePlatesWhileWatching;
+        if (ImGui.Checkbox("Hide name plates while watching", ref hideWhileWatching))
+        {
+            config.HideNamePlatesWhileWatching = hideWhileWatching;
+            config.Save();
+            if (!hideWhileWatching)
+                plugin.NamePlates.Restore();
+        }
+
+        Ui.Dim("While a video is on the TV, every name plate and item marker is hidden, everywhere on screen. Chat bubbles and the HUD stay. Your game settings aren't touched.");
 
         if (!depthControls)
             return;

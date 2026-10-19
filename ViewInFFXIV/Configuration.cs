@@ -110,6 +110,12 @@ public sealed class Configuration : IPluginConfiguration
     /// </summary>
     public bool IgnoreSceneDepth { get; set; }
 
+    /// <summary>
+    /// While a video is on the wall TV in your zone, hide every name plate and item marker, without touching the game's
+    /// name plate settings (<see cref="World.NamePlateHider"/>).
+    /// </summary>
+    public bool HideNamePlatesWhileWatching { get; set; }
+
     /// <summary>The mini remote (<see cref="Windows.RemoteWindow"/>) is shown during a party.</summary>
     public bool RemoteShown { get; set; }
 

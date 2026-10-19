@@ -63,6 +63,8 @@ public sealed class Plugin : IDalamudPlugin
 
     public SpatialAudio Audio { get; }
 
+    public NamePlateHider NamePlates { get; }
+
     public Playability Playability { get; } = new();
 
     public RenderTrace RenderTrace { get; } = new();
@@ -111,6 +113,7 @@ public sealed class Plugin : IDalamudPlugin
         Queue = new WatchQueue(this);
         Thumbnails = new ThumbnailCache(TextureProvider, Log);
         Audio = new SpatialAudio(this);
+        NamePlates = new NamePlateHider(Configuration, GameGui, Log);
 
         mainWindow = new MainWindow(this);
         WindowSystem.AddWindow(mainWindow);
@@ -158,6 +161,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnFramework;
+        NamePlates.Dispose();
         PluginInterface.UiBuilder.Draw -= Draw;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleMainUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
@@ -254,6 +258,7 @@ public sealed class Plugin : IDalamudPlugin
         WindowShare.Tick();
         Queue.Tick(HighPerformance.Playback);
         Audio.Tick();
+        NamePlates.Tick(Renderer.WillDraw && Picture != null);
         RenderTrace.Tick();
         Renderer.FrameworkTicks++;
         if (FrameInjector.Rendering)
@@ -529,6 +534,17 @@ public sealed class Plugin : IDalamudPlugin
                 ChatGui.Print(Configuration.ExperimentalDepth
                     ? "Experimental mode on: the screen's depth settings are in Settings → Screen. /matinee experimental off goes back."
                     : "Experimental mode off.", ChatPrefix);
+                break;
+            case "nameplates":
+                if (rest is "on" or "off")
+                {
+                    Configuration.HideNamePlatesWhileWatching = rest == "on";
+                    Configuration.Save();
+                    if (rest == "off")
+                        NamePlates.Restore();
+                }
+
+                ChatGui.Print($"{NamePlates.Describe()} · option {Configuration.HideNamePlatesWhileWatching}", ChatPrefix);
                 break;
             case "rprobe":
                 WallRenderer.Pass.ProbeArmed = true;
