@@ -90,6 +90,28 @@ public sealed class WatchQueue
         plugin.Configuration.Save();
     }
 
+    /// <summary>Queues a pasted link. It shows as a plain video until the check brings its title and channel.</summary>
+    public void AddLink(string videoId)
+    {
+        if (Contains(videoId))
+            return;
+
+        var video = History.Find(v => v.Id == videoId) ?? Favourites.Find(v => v.Id == videoId) ?? new VideoInfo { Id = videoId };
+        Add(video);
+        if (video.Title.Length > 0)
+            return;
+
+        plugin.Playability.Check(videoId).ContinueWith(t => Plugin.Framework.RunOnFrameworkThread(() =>
+        {
+            if (t.IsCompletedSuccessfully && t.Result.Title.Length > 0 && video.Title.Length == 0)
+            {
+                video.Title = t.Result.Title;
+                video.Channel = t.Result.Channel;
+                plugin.Configuration.Save();
+            }
+        }));
+    }
+
     public bool Contains(string videoId) => UpNext.Exists(v => v.Id == videoId);
 
     /// <summary>Plays the first video in Up next. Returns false when the list is empty.</summary>

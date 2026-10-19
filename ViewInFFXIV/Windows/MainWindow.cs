@@ -493,15 +493,37 @@ public sealed partial class MainWindow : Window, IDisposable
     {
         ImGui.Spacing();
         var width = ImGui.GetContentRegionAvail().X;
-        ImGui.SetNextItemWidth(width - 44 - 36 - 36);
+        ImGui.SetNextItemWidth(width - 44 - 36 - 36 - 36);
         var enter = ImGui.InputTextWithHint("##search", "Search YouTube or paste a link…", ref searchInput, 512, ImGuiInputTextFlags.EnterReturnsTrue);
+        var queueIt = enter && ImGui.GetIO().KeyShift;
         ImGui.SameLine();
-        if (ImGuiComponents.IconButton("##go", FontAwesomeIcon.Search) || enter)
+        if (ImGuiComponents.IconButton("##go", FontAwesomeIcon.Search) || (enter && !queueIt))
             Submit(searchInput.Trim());
+        ImGui.SameLine();
+        if (ImGuiComponents.IconButton("##queuelink", FontAwesomeIcon.Plus) || queueIt)
+            QueueLink(searchInput.Trim());
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Add the pasted YouTube link to Up next\n(or press Shift+Enter)");
         ImGui.SameLine();
         DrawTwitchPopupButton();
         ImGui.SameLine();
         DrawWindowPopupButton();
+    }
+
+    private void QueueLink(string text)
+    {
+        if (text.Length == 0)
+            return;
+
+        if (YouTubeSearch.FindVideoId(text) is not { } id)
+        {
+            Notify.Warning("Can't add that to Up next", "Paste a YouTube video link to line it up.");
+            return;
+        }
+
+        Queue.AddLink(id);
+        searchInput = "";
+        listView = ListView.UpNext;
     }
 
     private void Submit(string text)
@@ -657,7 +679,7 @@ public sealed partial class MainWindow : Window, IDisposable
 
         if (Queue.UpNext.Count == 0)
         {
-            Ui.Dim("Nothing queued. Use + on a search result to line videos up.");
+            Ui.Dim("Nothing queued. Use + on a search result, or paste a link and press + next to the search box.");
             return;
         }
 
