@@ -135,6 +135,15 @@ all the places. Verified on 2026-10-10, game 7.x, 2560×1440, gamma 0.86, DX11.
   `mainVP`). `Origin` is the camera position and `NearPlane` the near plane.
 - **If broken:** the screen swims or jitters against the wall while the camera moves, or its occlusion edges lag
   behind people.
+- **The view matrix's fourth column is set to (0, 0, 0, 1) by us** (`FrameInjector.Affine`). The game does not use
+  it and does not keep it at (0, 0, 0, 1): in November 2026 it held near-zero junk on an NVIDIA machine. The
+  reverse-Z projection takes the depth from exactly that column (its z column is `0 0 0 near`), so the screen got a
+  depth of ~0 (infinitely far) and every pixel hid behind the scene while it kept drawing in the right place
+  (`drawn` rising, `missed` 0, `rdebug` made it show). x, y and the distance never touch that column.
+  `/matinee rstat` prints a second `camera:` line: the view's fourth column, the projection's z and w columns, and
+  the screen centre's depth with the raw view (`raw view`), with the corrected one (`used`) and by
+  `Control.ViewProjectionMatrix` (`game`). `used` should be about near ÷ the distance ahead. The log warns once when
+  the raw view would have given another depth. `/matinee rdebug rawview` goes back to the raw view, for comparison.
 
 ### A6. Depth (`Wall.hlsl`, `WallRenderer.DepthReadFormat/DepthWriteFormat`)
 - **Assumes:**
@@ -195,7 +204,8 @@ After a game or Dalamud update, with a screen placed in your house:
 3. **If it is on the overlay, or `missed` is climbing:** run `/matinee rtrace` and check A2/A3 against the report.
    Also compare A1's `ProcessCommands begin/end` pairs (one per frame).
 4. **If it draws but looks wrong:**
-   - screen hidden: `/matinee rdebug` (ignore depth); still hidden means A2/A5, shows means A6/A7;
+   - screen hidden: `/matinee rdebug` (ignore depth); still hidden means A2/A5, shows means A5/A6/A7 (start with
+     the `camera:` line of `rstat`: the `used` depth should be about near ÷ the distance ahead, and match `game`);
    - people or walls misjudged: `/matinee rdebug info` (A7);
    - swims during camera moves: A5;
    - names or markers on top: A8.

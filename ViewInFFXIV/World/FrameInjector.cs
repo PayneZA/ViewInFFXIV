@@ -80,6 +80,19 @@ public sealed unsafe class FrameInjector : IDisposable
     private float nearPlane;
     private int finalBinds;
 
+    // The camera exactly as the game gave it, for /matinee rstat (written on the render thread, read for display only).
+    private Matrix4x4 cameraViewProj;
+    private Matrix4x4 cameraView;
+    private Matrix4x4 cameraProjection;
+    private float farPlane;
+    private bool cameraOrtho;
+    private bool cameraStandardZ;
+    private bool cameraFiniteFar;
+    private bool warnedCameraDepth;
+
+    /// <summary>Debug (/matinee rdebug rawview): use the camera's view matrix as it is, unused fourth column included.</summary>
+    public static bool RawViewMatrix;
+
     /// <summary>True while the render thread is executing the game's commands (to detect overlap with other threads).</summary>
     public static volatile bool Rendering;
 
@@ -173,9 +186,71 @@ public sealed unsafe class FrameInjector : IDisposable
 
         // GAME ASSUMPTION A5: at the start of ProcessCommands the main render camera still describes the frame
         // being rendered (checked: equal to Control.ViewProjectionMatrix during the frame).
-        viewProj = (Matrix4x4)camera->ViewMatrix * (Matrix4x4)camera->ProjectionMatrix;
+        cameraView = camera->ViewMatrix;
+        cameraProjection = camera->ProjectionMatrix;
+        cameraViewProj = cameraView * cameraProjection;
         nearPlane = camera->NearPlane;
         cameraPos = camera->Origin;
+        farPlane = camera->FarPlane;
+        cameraOrtho = camera->IsOrtho;
+        cameraStandardZ = camera->StandardZ;
+        cameraFiniteFar = camera->FiniteFarPlane;
+
+        // GAME ASSUMPTION A5: the view matrix is a rotation and a translation; its fourth column is not used by the game
+        // and does not always hold (0, 0, 0, 1). It held near-zero junk on a player's machine, and since the reverse-Z
+        // projection takes its depth from exactly that column, the screen got a depth of ~0 (infinitely far): every
+        // pixel was hidden behind the scene while the screen kept drawing in the right place. Set it ourselves.
+        viewProj = RawViewMatrix ? cameraViewProj : Affine(cameraView) * cameraProjection;
+        if (!RawViewMatrix && !warnedCameraDepth)
+            CheckViewMatrix(current!.Center);
+    }
+
+    /// <summary><paramref name="view"/> with its fourth column set to (0, 0, 0, 1), as a rotation-and-translation matrix has.</summary>
+    public static Matrix4x4 Affine(Matrix4x4 view)
+    {
+        view.M14 = 0f;
+        view.M24 = 0f;
+        view.M34 = 0f;
+        view.M44 = 1f;
+        return view;
+    }
+
+    /// <summary>Logs once when the view matrix as the game left it would have put the screen at another depth.</summary>
+    private void CheckViewMatrix(Vector3 center)
+    {
+        var raw = Depth(center, cameraViewProj);
+        var used = Depth(center, viewProj);
+        if (!float.IsFinite(used) || used <= 0 || (float.IsFinite(raw) && Math.Abs(raw - used) <= used * 0.01f))
+            return;
+
+        warnedCameraDepth = true;
+        Plugin.Log.Warning(
+            "Wall screen: the camera's view matrix has a stray fourth column; corrected (the screen's depth would have been {Raw} instead of {Used}). {Info}",
+            raw, used, CameraInfo(center, null));
+    }
+
+    private static float Depth(Vector3 point, in Matrix4x4 viewProj)
+    {
+        var clip = Vector4.Transform(new Vector4(point, 1f), viewProj);
+        return clip.W != 0 ? clip.Z / clip.W : float.NaN;
+    }
+
+    /// <summary>
+    /// The camera as the last frame took it, for /matinee rstat: its depth settings, the view matrix's fourth column,
+    /// the depth part of its projection, and the screen centre's depth by the view matrix as the game left it, by what
+    /// the screen uses, and by the game's own camera (<c>Control.ViewProjectionMatrix</c>).
+    /// </summary>
+    public string CameraInfo(Vector3 center, Matrix4x4? gameViewProj)
+    {
+        var v = cameraView;
+        var p = cameraProjection;
+        var ahead = Vector4.Transform(new Vector4(center, 1f), cameraViewProj).W;
+        var game = gameViewProj is { } g ? $", game {Depth(center, g):0.00000}" : "";
+        return $"camera: near {nearPlane:0.###} far {farPlane:0.#} ortho {cameraOrtho} standardZ {cameraStandardZ} finiteFar {cameraFiniteFar} · " +
+               $"view 4th column {v.M14:G3} {v.M24:G3} {v.M34:G3} {v.M44:G3} · " +
+               $"projection z column {p.M13:0.#####} {p.M23:0.#####} {p.M33:0.#####} {p.M43:0.#####}, w column {p.M14:0.###} {p.M24:0.###} {p.M34:0.###} {p.M44:0.###} · " +
+               $"screen centre {ahead:0.0} m ahead, its depth: raw view {Depth(center, cameraViewProj):0.00000}, used {Depth(center, viewProj):0.00000}{game} · " +
+               $"view matrix {(RawViewMatrix ? "raw (rdebug rawview)" : "corrected")}";
     }
 
     private void EndFrame(uint count)

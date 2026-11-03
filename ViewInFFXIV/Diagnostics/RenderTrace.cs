@@ -279,7 +279,7 @@ public sealed unsafe class RenderTrace : IDisposable
         RenderCamera* camera = manager != null ? manager->MainCamera : null;
         if (camera != null)
         {
-            var vp = (Matrix4x4)camera->ViewMatrix * (Matrix4x4)camera->ProjectionMatrix;
+            var vp = World.FrameInjector.Affine(camera->ViewMatrix) * (Matrix4x4)camera->ProjectionMatrix;
             e.MainVp = new Vector4(vp.M41, vp.M42, vp.M43, vp.M44);
         }
     }

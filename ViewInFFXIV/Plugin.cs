@@ -492,6 +492,8 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "rstat":
                 ChatGui.Print(Renderer.Stats(), ChatPrefix);
+                if (Renderer.CameraStats() is { } camera)
+                    ChatGui.Print(camera, ChatPrefix);
                 break;
             case "rdebug":
                 if (rest == "overlay")
@@ -524,9 +526,11 @@ public sealed class Plugin : IDalamudPlugin
                     WallRenderer.Pass.NoDepthCopy = !WallRenderer.Pass.NoDepthCopy;
                 else if (rest == "depth")
                     WallRenderer.Pass.ShowDepth = !WallRenderer.Pass.ShowDepth;
+                else if (rest == "rawview")
+                    FrameInjector.RawViewMatrix = !FrameInjector.RawViewMatrix;
                 else
                     WallRenderer.Pass.IgnoreDepth = !WallRenderer.Pass.IgnoreDepth;
-                ChatGui.Print($"Wall screen debug: ignore depth {WallRenderer.Pass.IgnoreDepth} · show scene info {WallRenderer.Pass.ShowInfo} · show depth {WallRenderer.Pass.ShowDepth} · no depth copy {WallRenderer.Pass.NoDepthCopy} · force overlay {ScreenRenderer.ForceOverlay} · over everything {ScreenRenderer.ForceOverEverything} · self-test on any card {ScreenRenderer.DebugLadder} · mode {ScreenRenderer.DebugMode?.ToString() ?? "auto"} · fail {(WallRenderer.Pass.LadderFail.Length > 0 ? WallRenderer.Pass.LadderFail : "none")}", ChatPrefix);
+                ChatGui.Print($"Wall screen debug: ignore depth {WallRenderer.Pass.IgnoreDepth} · show scene info {WallRenderer.Pass.ShowInfo} · show depth {WallRenderer.Pass.ShowDepth} · no depth copy {WallRenderer.Pass.NoDepthCopy} · raw view matrix {FrameInjector.RawViewMatrix} · force overlay {ScreenRenderer.ForceOverlay} · over everything {ScreenRenderer.ForceOverEverything} · self-test on any card {ScreenRenderer.DebugLadder} · mode {ScreenRenderer.DebugMode?.ToString() ?? "auto"} · fail {(WallRenderer.Pass.LadderFail.Length > 0 ? WallRenderer.Pass.LadderFail : "none")}", ChatPrefix);
                 break;
             case "experimental":
                 Configuration.ExperimentalDepth = rest switch { "on" => true, "off" => false, _ => !Configuration.ExperimentalDepth };

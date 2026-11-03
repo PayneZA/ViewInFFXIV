@@ -137,6 +137,15 @@ public sealed unsafe class ScreenRenderer : IDisposable
         $"depth {lastMode}{(lastSceneInfo ? "" : " without scene info")}{(LadderApplies ? $" · self-test: {ladder.Status}" : "")} · " +
         (injector == null ? "no in-world hook" : $"GPU {injector.TakeGpuMilliseconds():0.000} ms/frame · rendered {injector.RenderFrames} · drawn {injector.Drawn} · stale {injector.Stale} · missed {injector.Missed} · failed {injector.Failed} · faulted {injector.Faulted} · framework ticks during render {FrameworkOverlaps}/{FrameworkTicks} · last miss: {injector.LastMiss} · depth: {injector.DepthInfo}");
 
+    /// <summary>The in-world camera for /matinee rstat (second line), or null without the in-world hook or a placed screen.</summary>
+    public string? CameraStats()
+    {
+        if (injector == null || !ScreenPlacement.TryGetCorners(config, out var center, out _, out _))
+            return null;
+        var control = Control.Instance();
+        return injector.CameraInfo(center, control != null ? (Matrix4x4)control->ViewProjectionMatrix : null);
+    }
+
     public long FrameworkTicks;
     public long FrameworkOverlaps;
 
